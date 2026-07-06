@@ -46,6 +46,11 @@ Bash tool's PATH while the plugin is enabled — call it bare, no env setup.
    count; confirm the CLAUDE.md block markers were written verbatim. Commit
    `.workflow/config.json`, `.workflow/.gitignore`, `.claude/settings.json`,
    and `CLAUDE.md`.
+5. Tell the user: permission rules written to settings.json take effect on
+   the **next session** — restart (or check `/permissions`) so `wf` calls run
+   prompt-free. If a `wf` command still prompts mid-session, accepting
+   "don't ask again for `wf record *`" is safe: the engine only writes under
+   `.workflow/`.
 
 Native Windows (no Git Bash) note: until M5, run the engine installer once by
 hand — `powershell -File <plugin-root>/scripts/bootstrap.ps1` — since the

@@ -1,8 +1,10 @@
 package runctl
 
 import (
+	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Deterministic risk keyword screen (the v0.36 risk_scan.sh, engine-native).
@@ -27,18 +29,47 @@ var signalLenses = map[string][]string{
 	"ui":          {"usability"},
 }
 
+var (
+	kwOnce sync.Once
+	kwRe   map[string]*regexp.Regexp
+)
+
+// keyword matching is WORD-BOUNDED: substring matching made "requirements"
+// trigger the `ui` signal (live-testing bug). Multi-word keywords match as
+// phrases; "rm -" style fragments keep their literal tail.
+func keywordRegexps() map[string]*regexp.Regexp {
+	kwOnce.Do(func() {
+		isAlnum := func(b byte) bool {
+			return b >= 'a' && b <= 'z' || b >= '0' && b <= '9'
+		}
+		kwRe = map[string]*regexp.Regexp{}
+		for sig, words := range signalKeywords {
+			parts := make([]string, len(words))
+			for i, w := range words {
+				p := regexp.QuoteMeta(w)
+				if isAlnum(w[0]) {
+					p = `(^|[^a-z0-9])` + p
+				}
+				if isAlnum(w[len(w)-1]) {
+					p += `($|[^a-z0-9])`
+				}
+				parts[i] = p
+			}
+			kwRe[sig] = regexp.MustCompile(strings.Join(parts, "|"))
+		}
+	})
+	return kwRe
+}
+
 // RiskScan runs the keyword screen over text, merges agent-added signals, and
 // records the risk event (signals[] + lens bindings). The "user" lens is
 // always selected.
 func (c *Ctl) RiskScan(text string, added []string) (signals, lenses []string, err error) {
 	low := strings.ToLower(text)
 	set := map[string]bool{}
-	for sig, words := range signalKeywords {
-		for _, w := range words {
-			if strings.Contains(low, w) {
-				set[sig] = true
-				break
-			}
+	for sig, re := range keywordRegexps() {
+		if re.MatchString(low) {
+			set[sig] = true
 		}
 	}
 	for _, a := range added {

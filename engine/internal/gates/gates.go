@@ -153,15 +153,10 @@ func TaskCreated(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	if err != nil {
 		return hookio.Block("wf engine unhealthy: " + err.Error())
 	}
-	// mirror: reuse an existing wf task record with the same subject, else create
+	// mirror: link the native task to an existing wf task record via the
+	// matching ladder (tid token → exact subject → containment), else create.
 	subject := strings.TrimSpace(in.TaskSubject)
-	var recID string
-	for _, tr := range env.Records("task") {
-		if s, _ := tr.Data["subject"].(string); strings.EqualFold(s, subject) {
-			recID = tr.ID
-			break
-		}
-	}
+	recID := matchTaskRecord(env, subject)
 	if recID == "" {
 		tid := fmt.Sprintf("T-%d", len(env.Records("task"))+1)
 		dod := in.TaskDescription
@@ -236,12 +231,55 @@ func findTaskRecord(c *runctl.Ctl, env *contracts.Env, in *hookio.Input) *contra
 			}
 		}
 	}
-	for _, tr := range env.Records("task") {
-		if s, _ := tr.Data["subject"].(string); strings.EqualFold(s, strings.TrimSpace(in.TaskSubject)) {
-			return &tr
+	if id := matchTaskRecord(env, strings.TrimSpace(in.TaskSubject)); id != "" {
+		for _, tr := range env.Records("task") {
+			if tr.ID == id {
+				return &tr
+			}
 		}
 	}
 	return nil
+}
+
+// tidToken matches a leading "T-<n>" (with optional ":" separator) in a
+// native task subject — the linking convention the plan skill prescribes.
+var tidToken = regexp.MustCompile(`^\s*(T-\d+)\b:?\s*`)
+
+// matchTaskRecord implements the matching ladder that keeps native tasks and
+// wf task records one-to-one (the T-3/T-4 duplication bug from live testing):
+//  1. a leading "T-<n>:" token in the native subject → the record with that tid
+//  2. case-insensitive exact subject match
+//  3. normalized containment (either subject contains the other)
+//
+// Returns the record ID, or "" when nothing matches (caller creates one).
+func matchTaskRecord(env *contracts.Env, subject string) string {
+	tasks := env.Records("task")
+	if m := tidToken.FindStringSubmatch(subject); m != nil {
+		for _, tr := range tasks {
+			if tid, _ := tr.Data["tid"].(string); strings.EqualFold(tid, m[1]) {
+				return tr.ID
+			}
+		}
+	}
+	stripped := strings.TrimSpace(tidToken.ReplaceAllString(subject, ""))
+	for _, tr := range tasks {
+		if s, _ := tr.Data["subject"].(string); strings.EqualFold(strings.TrimSpace(s), subject) ||
+			strings.EqualFold(strings.TrimSpace(s), stripped) {
+			return tr.ID
+		}
+	}
+	norm := func(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
+	ns := norm(stripped)
+	if len(ns) >= 8 { // containment on very short strings is noise
+		for _, tr := range tasks {
+			s, _ := tr.Data["subject"].(string)
+			nr := norm(s)
+			if nr != "" && (strings.Contains(nr, ns) || strings.Contains(ns, nr)) {
+				return tr.ID
+			}
+		}
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------------------

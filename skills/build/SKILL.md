@@ -6,7 +6,8 @@ description: wf phase 5 (Build) — execute tasks test-first under the task gate
 # /wf:build — Build (auto-advance)
 
 Per task, in order:
-1. `TaskUpdate` the native task to `in_progress` and update the wf record:
+1. `TaskUpdate` the native task (subject `"T-<n>: …"` — the tid prefix links
+   it to the wf record) to `in_progress`, and update the wf record:
    `wf record task updates=<task-event-id> status=in_progress` — the test
    capture binds runs to the single in-progress task automatically.
 2. **Red first**: write the failing test, run it (the failing run is

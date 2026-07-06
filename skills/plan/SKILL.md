@@ -10,10 +10,12 @@ Contract first:
 - `wf record task tid=T-1 subject="…" status=open --json '{"dod":["…"],"ac_links":["AC-1"]}'`
   — atomic tasks, each with a definition-of-done and AC links; for the diff
   family the FIRST task per AC is its failing test. Mirror each into the
-  native task list (TaskCreate) — the TaskCompleted gate holds them to
-  their DoD live
-- Per AC: `wf record verification-strategy ac=AC-1 method="…" command="…"`
-  — this becomes the Verify checklist
+  native task list (TaskCreate) **with the tid as subject prefix** —
+  `"T-1: <same subject>"` — that prefix is how the gate links the native
+  task to its wf record (never duplicate-record)
+- Per AC: `wf record verification-strategy --json '{"ac":"AC-1","method":"…","command":"…"}'`
+  — this becomes the Verify checklist (single-quoted --json avoids
+  permission-prompt friction on embedded commands)
 - `wf record scope-boundary --json '{"in_scope":[…],"out_of_scope":[…]}'`
 - Deferred Frame ambiguities: disposition each (the gate lists them) — a
   new ambiguity record with `updates=<id>` and the final disposition, or a
