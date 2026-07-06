@@ -84,12 +84,6 @@
             "type": "command"
           },
           {
-            "command": "\u0026 \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.ps1\"",
-            "shell": "powershell",
-            "timeout": 60,
-            "type": "command"
-          },
-          {
             "args": [
               "inject",
               "session"

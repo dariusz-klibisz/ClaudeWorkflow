@@ -70,20 +70,20 @@ func hooksJSON(sp *spec.Spec) []byte {
 		return g
 	}
 
+	// Bootstrap ships as a sh script only: hooks cannot be platform-scoped,
+	// and a `shell:"powershell"` entry errors visibly on hosts without
+	// PowerShell. Native-Windows bootstrap is deferred to M5 (run
+	// scripts/bootstrap.ps1 once by hand until then — see skills/init).
 	bootstrapSh := map[string]any{
 		"type": "command", "timeout": 60,
 		"command": `"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh"`,
-	}
-	bootstrapPs := map[string]any{
-		"type": "command", "timeout": 60, "shell": "powershell",
-		"command": `& "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.ps1"`,
 	}
 
 	doc := map[string]any{
 		"description": "wf enforcement spine: Stop/task/verdict gates, tool gates, capture, and context injection (all generated from workflow/workflow.yaml)",
 		"hooks": map[string]any{
 			"SessionStart": []any{
-				group("", bootstrapSh, bootstrapPs, exec(15, "inject", "session")),
+				group("", bootstrapSh, exec(15, "inject", "session")),
 			},
 			"UserPromptSubmit": []any{
 				group("", exec(10, "inject", "turn")),

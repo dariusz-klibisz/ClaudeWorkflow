@@ -1,0 +1,52 @@
+#!/bin/sh
+# wf shim — plugin bin/ is on the Bash tool's PATH while the plugin is
+# enabled, so agents can call bare `wf …`. Resolves the plugin root from its
+# own location, points the engine at the bundled spec, and execs the platform
+# binary (falling back to the bootstrap-installed copy in CLAUDE_PLUGIN_DATA).
+set -eu
+
+self="$0"
+# resolve symlinks portably (readlink -f is not on macOS by default)
+while [ -L "$self" ]; do
+  target=$(readlink "$self")
+  case "$target" in
+    /*) self="$target" ;;
+    *) self="$(dirname "$self")/$target" ;;
+  esac
+done
+here=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd)
+root=$(dirname "$here")
+
+if [ -z "${WF_SPEC:-}" ] && [ -f "$root/workflow/workflow.yaml" ]; then
+  WF_SPEC="$root/workflow/workflow.yaml"
+  export WF_SPEC
+fi
+
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
+case "$os" in
+  linux*)  os=linux ;;
+  darwin*) os=darwin ;;
+  mingw*|msys*|cygwin*) os=windows ;;
+esac
+arch=$(uname -m)
+case "$arch" in
+  x86_64|amd64) arch=amd64 ;;
+  aarch64|arm64) arch=arm64 ;;
+esac
+
+bin="$here/wf-$os-$arch"
+[ "$os" = windows ] && bin="$bin.exe"
+
+if [ ! -x "$bin" ]; then
+  if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && [ -x "$CLAUDE_PLUGIN_DATA/bin/wf" ]; then
+    bin="$CLAUDE_PLUGIN_DATA/bin/wf"
+  elif [ -d "$root/engine" ] && command -v go >/dev/null 2>&1; then
+    # dev checkout without a built binary: build once
+    ( cd "$root/engine" && go build -o "$bin" ./cmd/wf ) >&2
+  else
+    echo "wf: no engine binary for $os/$arch (run 'make build' in the plugin repo, or start a session so the bootstrap installs one)" >&2
+    exit 3
+  fi
+fi
+
+exec "$bin" "$@"

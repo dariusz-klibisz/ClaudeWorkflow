@@ -148,12 +148,14 @@ engine warns on major-version skew — see §6).
 
 - **New project**: trust folder → accept marketplace prompt → `/wf:init` →
   first run.
-- **Existing v0.36 scaffold**: `/wf:init` detects `.workflow/manifest.json`,
-  offers to (a) import durable state (decisions history, lessons,
-  `trace/runs/`, RTM/docs stay in place — they're plain docs), (b) archive the
-  old `.workflow/hooks|steps|agents` trees, and (c) strip the old hook wiring
-  from `.claude/settings.json`. Old committed audit artifacts remain readable;
-  the new engine never parses them (fresh ledger).
+- **Existing v0.36 scaffold**: no migration ships (decided during M1). The
+  old generator used the same `.workflow/` directory with an incompatible
+  layout, so the engine **refuses** any project whose `.workflow/` contains a
+  legacy `manifest.json` — adoption errors loudly with the remediation
+  (remove/rename the old tree by hand first); all other engine paths treat
+  such a repo as un-adopted and stay silent. Old committed audit artifacts
+  remain readable as plain files; the new engine never parses or imports
+  them (fresh ledger).
 - **Air-gapped**: `git submodule add <tool-repo> tools/workflow` + launch via
   `claude --plugin-dir ./tools/workflow` (alias in a project script). Same
   plugin, no marketplace.

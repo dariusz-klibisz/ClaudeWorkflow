@@ -37,8 +37,9 @@ Ship; origin discovery for `fix`/`investigate` intents; `wf report`,
 
 **M4 — Conditional UX lane + polish.**
 ux-designer/ux-design-reviewer/ux-reviewer + `ux/` corpus; agent `memory:
-project` enablement; force-escalation; `wf run adopt`; v0.36 adoption path in
-`/wf:init`; docs site (the plugin README).
+project` enablement; force-escalation; `wf run adopt`; docs site (the plugin
+README). (v0.36 migration was cut during M1 — replaced by a hard refusal
+guard on legacy scaffolds, 02 §6.)
 
 **M5 — Release engineering.**
 CI: cross-compile matrix, `claude plugin validate --strict`, generated-file

@@ -80,6 +80,13 @@ explicit, engine-recorded decision (`wf phase waive design --reason "…"`),
 allowed only where the family contract marks the phase *waivable*, surfaced in
 `wf report`, and re-checked at Ship (§4.7). Never silence.
 
+**No trivial tier** (decided during M1 live testing): there is deliberately no
+reduced-ceremony mode for small tasks — every run carries the full family
+contract. Work too small to deserve a run happens outside wf via the
+user-level `WF_ENFORCE=0` escape (loud, hook-context-only, user-owned) — never
+via a quiet in-workflow skip. Depth tiers were the v0.36 route-explosion trap;
+resisting them is a feature.
+
 ## 3. The seven phases
 
 | # | Phase | Was (v0.36) | Mode | One-line purpose |

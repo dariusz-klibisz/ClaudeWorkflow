@@ -102,6 +102,16 @@ func Open(projectDir string, init bool) (*Store, error) {
 			return nil, ErrNotInitialized
 		}
 	}
+	// Never mix state with a legacy ClaudeInit scaffold: the old generator
+	// used the same .workflow/ directory with an incompatible layout,
+	// identified by its manifest.json. Adoption refuses loudly; every other
+	// path treats the project as not-ours (gates stay silent).
+	if _, err := os.Stat(filepath.Join(root, "manifest.json")); err == nil {
+		if init {
+			return nil, fmt.Errorf("%s contains a legacy ClaudeInit scaffold (manifest.json); remove or rename the old tree before adopting wf", root)
+		}
+		return nil, ErrNotInitialized
+	}
 	if init {
 		for _, d := range []string{"state", "log", "runs", "local", "contracts.d"} {
 			if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {

@@ -6,6 +6,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -206,8 +207,17 @@ func gateCmd(projectDir string, rest []string) int {
 	if err != nil {
 		in = &hookio.Input{}
 	}
+	// The catastrophic Bash net is store-free and always-on — it protects
+	// un-adopted projects too and must not depend on state or spec.
+	if which == "bash" {
+		return gates.Bash(nil, in).Emit(os.Stdout, os.Stderr)
+	}
 	ctl, err := openCtl(projectDir, false)
 	if err != nil {
+		// An un-adopted project has no workflow to enforce: allow silently.
+		if errors.Is(err, store.ErrNotInitialized) {
+			return hookio.Allow().Emit(os.Stdout, os.Stderr)
+		}
 		// fail-safe split: sequencing gates open+loud, data gates closed
 		switch which {
 		case "task-create", "task-complete", "verdict":
@@ -249,7 +259,7 @@ func injectCmd(projectDir string, rest []string) int {
 	}
 	ctl, err := openCtl(projectDir, false)
 	if err != nil {
-		if err == store.ErrNotInitialized || strings.Contains(err.Error(), "not initialized") {
+		if errors.Is(err, store.ErrNotInitialized) {
 			return 0 // project not adopted: injections stay silent
 		}
 		return hookio.BrokenGate(err).Emit(os.Stdout, os.Stderr)

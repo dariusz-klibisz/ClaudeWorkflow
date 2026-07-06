@@ -6,12 +6,17 @@ disable-model-invocation: true
 
 # /wf:init — project adoption
 
-Idempotent; safe to re-run after plugin updates. Steps:
+Idempotent; safe to re-run after plugin updates. The `wf` command is on the
+Bash tool's PATH while the plugin is enabled — call it bare, no env setup.
 
+0. **Refuse on a legacy scaffold**: if `.workflow/manifest.json` exists, this
+   directory was scaffolded by the old ClaudeInit generator, which used the
+   same `.workflow/` layout. Stop and tell the user to remove or rename the
+   old `.workflow/` tree first — wf does not migrate or share state with it.
 1. `wf init` — creates `.workflow/` (config.json, log/, contracts.d/,
    .gitignore) and records the plugin version.
 2. **Merge** (never overwrite) `.claude/settings.json` so collaborators get
-   the plugin on folder trust:
+   the plugin on folder trust, and `wf` calls need no permission prompts:
    ```json
    {
      "extraKnownMarketplaces": {
@@ -19,7 +24,8 @@ Idempotent; safe to re-run after plugin updates. Steps:
          "source": { "source": "github", "repo": "dariusz-klibisz/ClaudeWorkflow" }
        }
      },
-     "enabledPlugins": { "wf@claude-workflow": true }
+     "enabledPlugins": { "wf@claude-workflow": true },
+     "permissions": { "allow": ["Bash(wf *)"] }
    }
    ```
 3. Append the wf block to `CLAUDE.md` (create the file if absent), delimited
@@ -36,10 +42,11 @@ Idempotent; safe to re-run after plugin updates. Steps:
    - Audited escapes: /wf:park (honest stop), /wf:force (bypass, escalates).
    <!-- wf:end -->
    ```
-4. If a v0.36 scaffold exists (`.workflow/manifest.json` present): offer to
-   archive the old `hooks/ steps/ agents/` trees to `.workflow/legacy/` and
-   strip old hook wiring from `.claude/settings.json`. Old audit artifacts
-   stay readable; the new engine never parses them.
-5. Verify: `wf doctor --bootstrap` prints the engine version and contract
-   count. Commit `.workflow/config.json`, `.workflow/.gitignore`,
-   `.claude/settings.json`, and `CLAUDE.md`.
+4. Verify: `wf doctor --bootstrap` prints the engine version and contract
+   count; confirm the CLAUDE.md block markers were written verbatim. Commit
+   `.workflow/config.json`, `.workflow/.gitignore`, `.claude/settings.json`,
+   and `CLAUDE.md`.
+
+Native Windows (no Git Bash) note: until M5, run the engine installer once by
+hand — `powershell -File <plugin-root>/scripts/bootstrap.ps1` — since the
+SessionStart bootstrap ships as a sh script only.
