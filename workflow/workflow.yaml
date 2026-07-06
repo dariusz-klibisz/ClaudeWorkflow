@@ -167,6 +167,7 @@ records:
   - { kind: trace-finding, fields: [text, severity, status] } # status: open|resolved|dispositioned
   - { kind: waiver, fields: [item, reason] }
   - { kind: escape, fields: [action, reason, "level?"] } # action: park|force|enforce-off
+  - { kind: edit, fields: [path, "task?"] } # auto-captured edit→task binding (never gated)
 
 # ---------------------------------------------------------------------------
 # Phase-exit contracts (03 §4). Items apply to the families listed (all three

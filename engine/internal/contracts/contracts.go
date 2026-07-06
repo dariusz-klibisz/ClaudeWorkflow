@@ -193,6 +193,12 @@ func asSignal(v any) string {
 	return ""
 }
 
+// EvalOne evaluates a single predicate expression against the env — used by
+// the task gates to check one task's DoD without a full phase evaluation.
+func EvalOne(env *Env, pred string, params map[string]any, ctxID string) (bool, string, error) {
+	return evalPredicate(env, pred, params, ctxID)
+}
+
 // ---------------------------------------------------------------------------
 // Predicates
 // ---------------------------------------------------------------------------
