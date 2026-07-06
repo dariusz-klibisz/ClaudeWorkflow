@@ -27,7 +27,8 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	sp, err := spec.Load(filepath.Join(root, "workflow", "workflow.yaml"), "")
+	// strict: gen is the dev/CI-side parse that catches spec typos
+	sp, err := spec.LoadStrict(filepath.Join(root, "workflow", "workflow.yaml"), "")
 	if err != nil {
 		fatal(err)
 	}

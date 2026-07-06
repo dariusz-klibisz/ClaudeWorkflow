@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Input is the union of hook input fields across events; absent fields are
@@ -133,11 +135,29 @@ func Block(reason string) Result {
 }
 
 // BrokenGate is the fail-open-loud path for *sequencing* gates when the
-// engine itself is unhealthy: allow, but tell the user (04 §7).
+// engine itself is unhealthy: allow, but tell the user (04 §7). Identical
+// messages are rate-limited (once per hour) — degraded gates fire on every
+// tool call, and repeating the same wall of text erodes the signal.
 func BrokenGate(err error) Result {
-	return AllowJSON(map[string]any{
-		"systemMessage": Cap(fmt.Sprintf("[wf] gate degraded (fail-open): %v — run `wf doctor`", err)),
-	})
+	msg := fmt.Sprintf("[wf] gate degraded (fail-open): %v — run `wf doctor`", err)
+	if brokenGateSeenRecently(msg) {
+		return Allow()
+	}
+	return AllowJSON(map[string]any{"systemMessage": Cap(msg)})
+}
+
+func brokenGateSeenRecently(msg string) bool {
+	h := uint64(14695981039346656037)
+	for i := 0; i < len(msg); i++ {
+		h ^= uint64(msg[i])
+		h *= 1099511628211
+	}
+	marker := filepath.Join(os.TempDir(), fmt.Sprintf("wf-degraded-%x", h))
+	if st, err := os.Stat(marker); err == nil && time.Since(st.ModTime()) < time.Hour {
+		return true
+	}
+	_ = os.WriteFile(marker, nil, 0o644)
+	return false
 }
 
 // StopBlock prevents Claude from stopping (Stop/SubagentStop): exit 0 JSON

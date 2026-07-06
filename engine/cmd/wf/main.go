@@ -599,7 +599,8 @@ func doctorCmd(ctl *runctl.Ctl, rest []string) int {
 		fmt.Println("wf", Version, "— spec:", len(ctl.Spec.Contracts), "contract items,", len(ctl.Spec.Roster), "agents")
 		return 0
 	}
-	rep := doctor.Run(ctl)
+	specPath, _ := resolveSpecPath()
+	rep := doctor.Run(ctl, specPath)
 	fmt.Println(rep.String())
 	if !rep.OK {
 		return 2

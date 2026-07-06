@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/runctl"
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/spec"
 )
 
 type Report struct {
@@ -17,8 +18,20 @@ type Report struct {
 	Findings []string
 }
 
-func Run(c *runctl.Ctl) Report {
+func Run(c *runctl.Ctl, specPath string) Report {
 	var f []string
+
+	// strict spec re-parse: surfaces unknown fields (this engine may be older
+	// than the spec — tolerated at runtime, reported here)
+	if specPath != "" {
+		contractsDir := ""
+		if _, err := os.Stat(c.Store.ContractsDir()); err == nil {
+			contractsDir = c.Store.ContractsDir()
+		}
+		if _, err := spec.LoadStrict(specPath, contractsDir); err != nil {
+			f = append(f, fmt.Sprintf("spec has fields this engine version doesn't know (tolerated at runtime; update the plugin/engine): %v", err))
+		}
+	}
 
 	// snapshot vs log consistency (merge-recovery path)
 	snap, err := c.Store.LoadRun()

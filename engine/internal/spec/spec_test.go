@@ -200,6 +200,34 @@ records:
 	}
 }
 
+// Forward compatibility: an older engine must tolerate additive spec fields
+// at runtime (the corpus-field incident); strict parsing is dev/CI-only.
+func TestUnknownFieldsToleratedAtRuntimeStrictInCI(t *testing.T) {
+	raw, err := os.ReadFile(shippedSpecPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	future := strings.Replace(string(raw), "schema: 1", "schema: 1\nfuture_top_level_field: hello", 1)
+	future = strings.Replace(future,
+		"- { name: researcher,",
+		"- { name: researcher, future_agent_field: 7,", 1)
+	dir := t.TempDir()
+	p := filepath.Join(dir, "workflow.yaml")
+	if err := os.WriteFile(p, []byte(future), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p, ""); err != nil {
+		t.Fatalf("runtime load must tolerate additive fields: %v", err)
+	}
+	if _, err := LoadStrict(p, ""); err == nil {
+		t.Fatal("strict load must reject unknown fields (CI typo catching)")
+	}
+	// the shipped spec itself must be strictly clean
+	if _, err := LoadStrict(shippedSpecPath(t), ""); err != nil {
+		t.Fatalf("shipped spec fails strict parse: %v", err)
+	}
+}
+
 func TestValidationCatchesDanglingRefs(t *testing.T) {
 	raw, err := os.ReadFile(shippedSpecPath(t))
 	if err != nil {

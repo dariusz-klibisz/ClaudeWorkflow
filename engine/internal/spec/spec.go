@@ -159,14 +159,28 @@ func SubItem(m map[string]any) (pred string, params map[string]any, err error) {
 // Load reads the plugin spec and merges any .workflow/contracts.d/*.yaml
 // extensions (add-only). specPath is workflow/workflow.yaml inside the plugin;
 // contractsDir may be "" (no project extensions).
+//
+// Runtime loading is TOLERANT of unknown fields: additive spec changes must
+// never break an older engine within the same schema version (02 §5 — the
+// lesson of the corpus-field incident). Typos are caught at dev/CI time by
+// LoadStrict (gen -check, tests, doctor).
 func Load(specPath, contractsDir string) (*Spec, error) {
+	return load(specPath, contractsDir, false)
+}
+
+// LoadStrict rejects unknown fields — the dev/CI-side parse.
+func LoadStrict(specPath, contractsDir string) (*Spec, error) {
+	return load(specPath, contractsDir, true)
+}
+
+func load(specPath, contractsDir string, strict bool) (*Spec, error) {
 	raw, err := os.ReadFile(specPath)
 	if err != nil {
 		return nil, fmt.Errorf("read spec: %w", err)
 	}
 	var s Spec
 	dec := yaml.NewDecoder(strings.NewReader(string(raw)))
-	dec.KnownFields(true)
+	dec.KnownFields(strict)
 	if err := dec.Decode(&s); err != nil {
 		return nil, fmt.Errorf("parse spec: %w", err)
 	}
@@ -177,7 +191,7 @@ func Load(specPath, contractsDir string) (*Spec, error) {
 		s.Contracts[i].Source = "spec"
 	}
 	if contractsDir != "" {
-		if err := s.mergeContractsDir(contractsDir); err != nil {
+		if err := s.mergeContractsDir(contractsDir, strict); err != nil {
 			return nil, err
 		}
 	}
@@ -194,7 +208,7 @@ type extension struct {
 	Contracts []ContractItem `yaml:"contracts"`
 }
 
-func (s *Spec) mergeContractsDir(dir string) error {
+func (s *Spec) mergeContractsDir(dir string, strict bool) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -224,7 +238,7 @@ func (s *Spec) mergeContractsDir(dir string) error {
 		}
 		var ext extension
 		dec := yaml.NewDecoder(strings.NewReader(string(raw)))
-		dec.KnownFields(true)
+		dec.KnownFields(strict)
 		if err := dec.Decode(&ext); err != nil {
 			return fmt.Errorf("parse %s: %w", name, err)
 		}
