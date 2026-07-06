@@ -18,9 +18,10 @@ Contract first:
 - Deferred Frame ambiguities: disposition each (the gate lists them) — a
   new ambiguity record with `updates=<id>` and the final disposition, or a
   user-approved deferral (`wf approve deferral` first)
-- diff family: `wf deps check` is not yet available (M2) — verify declared
-  dependencies exist yourself and `wf record deps verdict=present|missing|n/a detail="…"`
-  (missing blocks; n/a is the honest escape)
+- diff family: `wf deps check` — verifies manifests + that every
+  verification-strategy command's tool resolves, and records the deps
+  verdict (missing blocks the gate; n/a is the honest escape). Run it AFTER
+  recording the verification strategies
 - spawn `@wf:critic` on the plan — or, when Design and Plan were presented
   and approved together, `wf contract waive plan.critic --reason "combined
   presentation covered at design"` (the waiver is recorded — E4)

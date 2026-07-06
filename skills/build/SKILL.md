@@ -23,7 +23,8 @@ Rules while building:
   `wf approve deviation` + `wf record deviation updates=<id> status=acked`.
 - Out-of-scope discoveries: `wf record followup text="…" status=open` —
   never silent scope expansion.
-- Commit messages carry `[run:<id>]`.
+- Commit messages carry `[run:<id>]` — commits are auto-captured as
+  `commit-origin` records; an untagged commit gets a visible reminder.
 
 Roster (diff family) — spawn on the accumulated diff, fix findings to clean;
 verdicts are captured automatically, failing auto verdicts are sticky:

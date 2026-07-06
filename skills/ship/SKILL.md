@@ -6,15 +6,18 @@ description: wf phase 7 (Ship) — deliver the package, resolve the trace findin
 # /wf:ship — Ship (interactive)
 
 Contract first:
-- Trace: `wf trace` is engine-computed in M2; until then `wf status` lists
-  the open items (followups, waivers, forces) — resolve or disposition each:
-  open followups become tasks now or are carried:
-  `wf record followup updates=<id> status=next-run`
-- `@wf:auditor` verdict over the resolved state (HIGH findings block close)
+- `wf trace` — the engine computes the close-out findings (forced exits,
+  open followups, unacked deviations, unresolved ambiguities) and prints
+  phase coverage + the escape/waiver inventory. Resolve or disposition each
+  finding: `wf record trace-finding updates=<id> status=resolved|dispositioned
+  note="…"`; open followups become tasks now or are carried
+  (`wf record followup updates=<id> status=next-run`). Re-run `wf trace`
+  until no finding is open
+- `@wf:auditor` verdict over the resolved trace (HIGH findings block close)
 - diff: record the delivery package —
   `wf record artifact path=<PR-or-release-ref> role=delivery status=present`;
-  intent deploy additionally `role=delivery-manifest` (target, config diff,
-  rollout method)
+  intent deploy: `wf doc new delivery-manifest --slug <release>` (target,
+  config diff, rollout, smoke, rollback), author + flip to present
 - Lessons: propose what the run taught
   (`wf record lesson text="…" status=proposed [check="…"]`), the user
   accepts or rejects each (`wf approve lesson` +

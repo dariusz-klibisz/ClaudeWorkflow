@@ -7,7 +7,7 @@
           {
             "args": [
               "capture",
-              "test"
+              "bash"
             ],
             "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
             "timeout": 10,

@@ -109,7 +109,7 @@ func hooksJSON(sp *spec.Spec) []byte {
 				group("Bash", exec(10, "gate", "bash")),
 			},
 			"PostToolUse": []any{
-				group("Bash", exec(10, "capture", "test")),
+				group("Bash", exec(10, "capture", "bash")),
 				group("Edit|Write", exec(10, "capture", "edit")),
 			},
 		},

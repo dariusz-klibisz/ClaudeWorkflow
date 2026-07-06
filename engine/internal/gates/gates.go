@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"sort"
 	"strings"
@@ -644,6 +645,71 @@ func activeTask(env *contracts.Env) (string, []string) {
 		}
 	}
 	return "", nil
+}
+
+// CaptureCommit records durable commit→run attribution (08 §6) when the
+// Bash call contains a `git commit` subcommand that succeeded. Recording
+// only — never blocks, never guesses on failure.
+func CaptureCommit(c *runctl.Ctl, in *hookio.Input) hookio.Result {
+	cmd := in.ToolInputField("command")
+	if !hasGitCommitSegment(cmd) {
+		return hookio.Allow()
+	}
+	r, err := c.Store.LoadRun()
+	if err != nil || r == nil || r.Status != "active" {
+		return hookio.Allow()
+	}
+	dir := in.CWD
+	if dir == "" {
+		dir = "."
+	}
+	sha, err := gitOut(dir, "rev-parse", "HEAD")
+	if err != nil || sha == "" {
+		return hookio.Allow()
+	}
+	// idempotence: skip if this sha is already recorded
+	if env, err := c.Env(r); err == nil {
+		for _, co := range env.Records("commit-origin") {
+			if s, _ := co.Data["commit"].(string); s == sha {
+				return hookio.Allow()
+			}
+		}
+	}
+	msg, _ := gitOut(dir, "log", "-1", "--format=%s")
+	tagged := strings.Contains(msg, "[run:"+r.ID+"]")
+	_, _ = c.Record("commit-origin", map[string]any{
+		"commit": sha, "run": r.ID, "tagged": tagged, "subject": msg,
+	}, true, "hook")
+	if !tagged {
+		return hookio.AllowJSON(map[string]any{
+			"systemMessage": "[wf] commit " + sha[:min(8, len(sha))] + " recorded, but its message lacks the [run:" + r.ID + "] tag — include it in future commits",
+		})
+	}
+	return hookio.Allow()
+}
+
+var segmentSplit = regexp.MustCompile(`&&|\|\||;`)
+
+func hasGitCommitSegment(cmd string) bool {
+	for _, seg := range segmentSplit.Split(cmd, -1) {
+		head := commandHead(strings.TrimSpace(seg))
+		if strings.HasPrefix(head, "git commit") {
+			return true
+		}
+	}
+	return false
+}
+
+func gitOut(dir string, args ...string) (string, error) {
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // CaptureEdit appends the edit→task binding ledger (never blocks).

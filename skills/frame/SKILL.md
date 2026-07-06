@@ -27,8 +27,10 @@ lists what is still missing, with commands):
   - spawn `@wf:adversary` (abuse-case mode) and `@wf:lens-reviewer`
     (security lens) on the framed requirements — their verdicts are captured
     automatically at completion
-- intent fix/investigate: `wf record origin attribution="…"` (commit-level
-  origin of the defect; best-effort content)
+- intent fix/investigate: `wf origin discover --path <file> --text "<code
+  fragment>"` (git-grounded attribution; falls back to
+  `wf record origin attribution="…"` with reduced confidence when git is
+  inconclusive)
 
 Procedure:
 1. Restate the task in your own words. Ask the user targeted questions per

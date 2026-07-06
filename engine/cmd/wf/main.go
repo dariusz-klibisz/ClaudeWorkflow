@@ -17,10 +17,12 @@ import (
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/gates"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/hookio"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/inject"
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/ops"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/runctl"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/selftest"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/spec"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/store"
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/views"
 )
 
 var Version = "0.1.0-dev"
@@ -108,6 +110,14 @@ func run(args []string) int {
 		return statusCmd(ctl, rest)
 	case "doctor":
 		return doctorCmd(ctl, rest)
+	case "trace":
+		return traceCmd(ctl)
+	case "deps":
+		return depsCmd(ctl, projectDir, rest)
+	case "origin":
+		return originCmd(ctl, projectDir, rest)
+	case "doc":
+		return docCmd(ctl, projectDir, rest)
 	default:
 		fmt.Fprintf(os.Stderr, "wf: unknown command %q (wf help)\n", cmd)
 		return 3
@@ -304,8 +314,12 @@ func captureCmd(projectDir string, rest []string) int {
 		return 0
 	}
 	switch rest[0] {
-	case "test":
-		return gates.CaptureTest(ctl, in).Emit(os.Stdout, os.Stderr)
+	case "bash", "test": // one Bash hook entry captures tests AND commits
+		res := gates.CaptureTest(ctl, in)
+		if r2 := gates.CaptureCommit(ctl, in); r2.Stdout != "" {
+			res = r2
+		}
+		return res.Emit(os.Stdout, os.Stderr)
 	case "edit":
 		return gates.CaptureEdit(ctl, in).Emit(os.Stdout, os.Stderr)
 	}
@@ -593,6 +607,76 @@ func doctorCmd(ctl *runctl.Ctl, rest []string) int {
 	return 0
 }
 
+func traceCmd(ctl *runctl.Ctl) int {
+	report, err := views.Trace(ctl)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wf:", err)
+		return 2
+	}
+	fmt.Print(report)
+	return 0
+}
+
+func depsCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
+	if len(rest) == 0 || rest[0] != "check" {
+		fmt.Fprintln(os.Stderr, "wf deps check")
+		return 3
+	}
+	out, err := ops.DepsCheck(ctl, projectDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wf:", err)
+		return 2
+	}
+	fmt.Println(out)
+	if strings.HasPrefix(out, "deps: missing") {
+		return 2
+	}
+	return 0
+}
+
+func originCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
+	if len(rest) == 0 || rest[0] != "discover" {
+		fmt.Fprintln(os.Stderr, "wf origin discover [--path …] [--text …]")
+		return 3
+	}
+	fs := flag.NewFlagSet("origin", flag.ContinueOnError)
+	path := fs.String("path", "", "file whose history to follow")
+	text := fs.String("text", "", "code fragment to pickaxe (-S)")
+	if err := fs.Parse(rest[1:]); err != nil {
+		return 3
+	}
+	out, err := ops.OriginDiscover(ctl, projectDir, *path, *text)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wf:", err)
+		return 2
+	}
+	fmt.Println(out)
+	return 0
+}
+
+func docCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
+	if len(rest) < 2 || rest[0] != "new" {
+		fmt.Fprintln(os.Stderr, "wf doc new adr|design|threat-model|ux|review|release-notes|delivery-manifest --slug …")
+		return 3
+	}
+	fs := flag.NewFlagSet("doc", flag.ContinueOnError)
+	slug := fs.String("slug", "", "kebab-case name for the document")
+	if err := fs.Parse(rest[2:]); err != nil {
+		return 3
+	}
+	root := os.Getenv("CLAUDE_PLUGIN_ROOT")
+	if root == "" {
+		root = ctl.Spec.PluginRoot()
+	}
+	out, err := ops.DocNew(ctl, root, projectDir, rest[1], *slug)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wf:", err)
+		return 2
+	}
+	fmt.Println(out)
+	return 0
+}
+
 // ---------------------------------------------------------------------------
 
 type sliceFlag []string
@@ -627,8 +711,10 @@ records:         wf record <kind> [--json '{…}'] [key=value …]
                  wf loop --ac AC-1 --cause slip|design|plan --evidence …
                  wf park --reason …
                  wf risk scan [--text …] [--add signal]…
-introspection:   wf status · wf doctor [--bootstrap] · wf version
+grounding:       wf deps check · wf origin discover [--path …] [--text …]
+                 wf doc new <type> --slug … · wf trace
+introspection:   wf status · wf doctor [--bootstrap] · wf selftest · wf version
 hook entries:    wf gate stop|task-create|task-complete|verdict|skill|edit|bash
-                 wf inject session|turn|agent <name> · wf capture test|edit
+                 wf inject session|turn|agent <name> · wf capture bash|edit
 `)
 }

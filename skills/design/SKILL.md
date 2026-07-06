@@ -21,8 +21,10 @@ Trivial diff with no design decisions? `wf phase waive design --reason "…"`
   (attack-tree mode); mitigate or ADR-accept high-feasibility paths
 - spawn `@wf:critic` — independent go/no-go; a `risky` verdict passes only
   after `wf record disposition ref=<verdict-id> text="…"` per concern
-- architectural decision: create the ADR under `docs/architecture/adr/` and
-  `wf record artifact path=docs/architecture/adr/NNNN-….md template=adr status=present`
+- architectural decision: `wf doc new adr --slug <decision-name>` (engine
+  copies the template into `docs/architecture/adr/` and records the stub),
+  author it, then flip the record:
+  `wf record artifact updates=<id> status=present`
 - `wf approve design --payload "<selected options + risks + testability>"`
   — after presenting to the user
 
