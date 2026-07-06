@@ -8,6 +8,8 @@ package inject
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -96,7 +98,7 @@ func Turn(c *runctl.Ctl) (string, error) {
 }
 
 // Agent renders the SubagentStart briefing for a gating reviewer: scope,
-// inputs, and the verdict-block contract (04 §4).
+// inputs, corpus routing, and the verdict-block contract (04 §4).
 func Agent(c *runctl.Ctl, agentName string) (string, error) {
 	r, err := c.Store.LoadRun()
 	if err != nil || r == nil {
@@ -108,10 +110,43 @@ func Agent(c *runctl.Ctl, agentName string) (string, error) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "[wf] review scope: run %s (%s/%s), phase %s.\n", r.ID, r.Family, orDash(r.Intent), r.Phase)
+	if mode := agentMode(agentName, r.Phase); mode != "" {
+		fmt.Fprintf(&b, "assigned mode/scope for this spawn: %s — include it as the `scope:` line of the verdict block.\n", mode)
+	}
+	if len(ag.Corpus) > 0 {
+		root := pluginRoot(c)
+		b.WriteString("reference corpus for this review (read before judging; cite file+rule):\n")
+		for _, p := range ag.Corpus {
+			fmt.Fprintf(&b, "  - %s\n", filepath.Join(root, filepath.FromSlash(p)))
+		}
+		b.WriteString("corpus absent/unreadable ⇒ use your own knowledge and say so in the verdict.\n")
+	}
 	b.WriteString("The verdict is machine-parsed. The final message must end with exactly this fenced block:\n")
-	b.WriteString("```verdict\nstatus: <clean|changes-required|safe|risky|unsafe|n/a>\ncriticals: <int>\nmajors: <int>\n```\n")
+	b.WriteString("```verdict\nstatus: <clean|changes-required|safe|risky|unsafe|n/a>\ncriticals: <int>\nmajors: <int>\nscope: <your assigned mode/lens, if any>\n```\n")
 	b.WriteString("clean/safe require criticals=0 and majors=0; risky requires each concern listed for disposition; n/a needs one line of reason above the block.\n")
 	return b.String(), nil
+}
+
+// agentMode mirrors the verdict gate's phase-derived default scopes.
+func agentMode(agent, phase string) string {
+	if agent == "adversary" {
+		switch phase {
+		case "frame":
+			return "abuse-case"
+		case "design":
+			return "attack-tree"
+		default:
+			return "red-team"
+		}
+	}
+	return ""
+}
+
+func pluginRoot(c *runctl.Ctl) string {
+	if r := os.Getenv("CLAUDE_PLUGIN_ROOT"); r != "" {
+		return r
+	}
+	return c.Spec.PluginRoot()
 }
 
 // ---------------------------------------------------------------------------

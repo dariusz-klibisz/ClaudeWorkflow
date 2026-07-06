@@ -28,7 +28,12 @@ type Spec struct {
 	Roster    []Agent             `yaml:"roster"`
 	Records   []RecordKind        `yaml:"records"`
 	Contracts []ContractItem      `yaml:"contracts"`
+
+	pluginRoot string // dir containing workflow/, reference/, agents/ …
 }
+
+// PluginRoot is the plugin directory the spec was loaded from.
+func (s *Spec) PluginRoot() string { return s.pluginRoot }
 
 type Verdicts struct {
 	Pass        []string `yaml:"pass"`
@@ -60,6 +65,9 @@ type Agent struct {
 	MaxTurns int      `yaml:"maxTurns"`
 	Memory   string   `yaml:"memory"`
 	When     *When    `yaml:"when"`
+	// Corpus lists the bundled reference files/dirs this agent is routed to
+	// (plugin-root-relative). Validated to exist; injected at SubagentStart.
+	Corpus []string `yaml:"corpus"`
 }
 
 type RecordKind struct {
@@ -161,6 +169,9 @@ func Load(specPath, contractsDir string) (*Spec, error) {
 	dec.KnownFields(true)
 	if err := dec.Decode(&s); err != nil {
 		return nil, fmt.Errorf("parse spec: %w", err)
+	}
+	if abs, err := filepath.Abs(specPath); err == nil {
+		s.pluginRoot = filepath.Dir(filepath.Dir(abs))
 	}
 	for i := range s.Contracts {
 		s.Contracts[i].Source = "spec"
@@ -316,7 +327,7 @@ func (s *Spec) Validate() error {
 		}
 	}
 
-	// Roster: unique names, real phases.
+	// Roster: unique names, real phases, resolvable corpus routes.
 	agents := map[string]bool{}
 	for _, a := range s.Roster {
 		if agents[a.Name] {
@@ -326,6 +337,18 @@ func (s *Spec) Validate() error {
 		for _, p := range a.Phases {
 			if !phaseIDs[p] {
 				fail("agent %q: unknown phase %q", a.Name, p)
+			}
+		}
+		// Corpus paths are checked only when the plugin actually bundles a
+		// reference/ tree (spec copies in tests/dev sandboxes skip this; the
+		// real repo is covered by CI's gen -check from the plugin root).
+		if s.pluginRoot != "" {
+			if _, err := os.Stat(filepath.Join(s.pluginRoot, "reference")); err == nil {
+				for _, c := range a.Corpus {
+					if _, err := os.Stat(filepath.Join(s.pluginRoot, filepath.FromSlash(c))); err != nil {
+						fail("agent %q: corpus path %q not found in plugin", a.Name, c)
+					}
+				}
 			}
 		}
 	}

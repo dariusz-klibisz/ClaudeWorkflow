@@ -96,33 +96,53 @@ roster:
   - { name: researcher, gating: false, phases: [context, design], model: inherit,
       tools: [WebSearch, WebFetch, Read, Grep, Glob] }
   - { name: designer, gating: false, phases: [design], model: opus,
-      tools: [Read, Grep, Glob] }
+      tools: [Read, Grep, Glob],
+      corpus: [reference/design/00-index.md, reference/design/06-quality-attributes-tradeoffs.md,
+               reference/design/01-architecture-principles.md, reference/design/02-architecture-patterns.md,
+               reference/design/03-software-design-principles.md] }
   - { name: ux-designer, gating: false, phases: [design], model: opus,
-      tools: [Read, Grep, Glob], when: { config: { ux: true } } }
+      tools: [Read, Grep, Glob], when: { config: { ux: true } },
+      corpus: [reference/ux/00-index.md, reference/ux/01-core-principles.md,
+               reference/ux/04-interaction-design.md] }
   - { name: implementer, gating: false, phases: [build], model: inherit,
-      tools: [Read, Grep, Glob, Edit, Write, Bash] }
+      tools: [Read, Grep, Glob, Edit, Write, Bash],
+      corpus: [reference/coding/00-index.md, reference/coding/languages, reference/coding/checklists] }
   # Gating
   - { name: critic, gating: true, phases: [design, plan], model: opus,
-      tools: [Read, Grep, Glob], maxTurns: 30 }
+      tools: [Read, Grep, Glob], maxTurns: 30,
+      corpus: [reference/design/06-quality-attributes-tradeoffs.md] }
   - { name: design-reviewer, gating: true, phases: [design], model: opus,
-      tools: [Read, Grep, Glob], maxTurns: 30, memory: project }
+      tools: [Read, Grep, Glob], maxTurns: 30, memory: project,
+      corpus: [reference/design/00-index.md, reference/design/01-architecture-principles.md,
+               reference/design/02-architecture-patterns.md, reference/design/03-software-design-principles.md,
+               reference/design/06-quality-attributes-tradeoffs.md] }
   - { name: ux-design-reviewer, gating: true, phases: [design], model: opus,
-      tools: [Read, Grep, Glob], maxTurns: 30, when: { config: { ux: true } } }
+      tools: [Read, Grep, Glob], maxTurns: 30, when: { config: { ux: true } },
+      corpus: [reference/ux/21-agent-checklists.md, reference/ux/05-accessibility.md] }
   - { name: code-quality-reviewer, gating: true, phases: [build], model: inherit,
-      tools: [Read, Grep, Glob], maxTurns: 40, memory: project }
+      tools: [Read, Grep, Glob], maxTurns: 40, memory: project,
+      corpus: [reference/coding/01-principles.md, reference/coding/03-error-handling.md,
+               reference/coding/06-performance.md, reference/coding/07-concurrency.md,
+               reference/coding/09-documentation-and-comments.md, reference/coding/checklists] }
   - { name: code-security-reviewer, gating: true, phases: [build], model: inherit,
-      tools: [Read, Grep, Glob], maxTurns: 40 }
+      tools: [Read, Grep, Glob], maxTurns: 40,
+      corpus: [reference/coding/04-security.md] }
   - { name: code-testing-reviewer, gating: true, phases: [build], model: inherit,
-      tools: [Read, Grep, Glob], maxTurns: 40 }
+      tools: [Read, Grep, Glob], maxTurns: 40,
+      corpus: [reference/coding/05-testing.md] }
   - { name: design-conformance-reviewer, gating: true, phases: [build, verify],
-      model: inherit, tools: [Read, Grep, Glob], maxTurns: 40 }
+      model: inherit, tools: [Read, Grep, Glob], maxTurns: 40,
+      corpus: [reference/design/03-software-design-principles.md] }
   - { name: adversary, gating: true, phases: [frame, design, build, verify],
-      model: opus, tools: [Read, Grep, Glob], maxTurns: 40, memory: project }
+      model: opus, tools: [Read, Grep, Glob], maxTurns: 40, memory: project,
+      corpus: [reference/coding/04-security.md] }
   - { name: lens-reviewer, gating: true, phases: [frame, verify], model: inherit,
       tools: [Read, Grep, Glob], maxTurns: 30 }
   - { name: ux-reviewer, gating: true, phases: [frame, build, verify],
       model: inherit, tools: [Read, Grep, Glob], maxTurns: 30,
-      when: { config: { ux: true } } }
+      when: { config: { ux: true } },
+      corpus: [reference/ux/05-accessibility.md, reference/ux/06-aria-widget-reference.md,
+               reference/ux/18-patterns-antipatterns.md, reference/ux/21-agent-checklists.md] }
   - { name: auditor, gating: true, phases: [ship], model: opus,
       tools: [Read, Grep, Glob], maxTurns: 30 }
 
