@@ -17,6 +17,7 @@ import (
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/hookio"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/inject"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/runctl"
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/selftest"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/spec"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/store"
 )
@@ -36,6 +37,16 @@ func run(args []string) int {
 	switch cmd {
 	case "version", "--version":
 		fmt.Println("wf", Version)
+		return 0
+	case "selftest":
+		p, err := resolveSpecPath()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "wf:", err)
+			return 3
+		}
+		if selftest.Run(p) > 0 {
+			return 2
+		}
 		return 0
 	case "help", "--help", "-h":
 		usage()
@@ -200,7 +211,7 @@ func gateCmd(projectDir string, rest []string) int {
 		// fail-safe split: sequencing gates open+loud, data gates closed
 		switch which {
 		case "task-create", "task-complete", "verdict":
-			return hookio.Block("wf engine unavailable (fail-closed gate): " + err.Error()).Emit(os.Stdout, os.Stderr)
+			return hookio.Block("wf engine unavailable (fail-closed gate): "+err.Error()).Emit(os.Stdout, os.Stderr)
 		default:
 			return hookio.BrokenGate(err).Emit(os.Stdout, os.Stderr)
 		}

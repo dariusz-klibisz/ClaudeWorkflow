@@ -139,13 +139,18 @@ definition is **data**, and the engine is a generic interpreter:
   - **contract items** per (phase, family): each item = `{id, families,
     predicate, params, waivable, remediation}`.
 - **Closed predicate vocabulary.** Contract items compose a small, fixed set
-  of engine-implemented predicates — `record-exists(kind, min)`,
-  `record-count(kind, filter, ≥N)`, `linked-record(kind, link, target-kind)`,
-  `verdict-in(agent, statuses)`, `approval(gate)`, `no-open(kind, status)`,
-  `per-each(kind, item)` (e.g. "per AC: a linked green test-run") — plus
-  nothing else. No expression language, no scripting: a predicate the
-  vocabulary can't express is an engine change *on purpose* (that boundary is
-  what keeps gates deterministic and testable).
+  of engine-implemented predicates (final set, fixed by transcribing all of
+  §4 before the interpreter was built — which surfaced the last two):
+  `record-exists(kind, filter, ≥min)` · `linked-record(kind, link, filter)`
+  (inside per-each) · `verdict-in(agent, statuses, scope,
+  risky-with-dispositions)` (with the sticky-auto-evidence rule) ·
+  `approval(gate)` · `no-open(kind, field, open-values)` (over
+  update-folded record state) · `per-each(kind, each, item)` (e.g. "per AC:
+  a linked green test-run") · `any-of(items)` · `red-green(link)` (a failing
+  then a later passing grounded test-run, both link-tagged) — plus nothing
+  else. No expression language, no scripting: a predicate the vocabulary
+  can't express is an engine change *on purpose* (that boundary is what
+  keeps gates deterministic and testable).
 - **What each change costs now**: a new input/output = a record kind + schema
   (spec-only); a new verification step = one contract item (spec-only); a new
   action = a `wf record`/capture producer for an existing or new kind; a new
