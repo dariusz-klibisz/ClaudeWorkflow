@@ -374,7 +374,6 @@ contracts:
         params:
           items:
             - { predicate: red-green, params: { link: task } }
-            - { predicate: linked-record, params: { kind: test-run, link: task, filter: { grounded: true, exit: 0 } } }
             - { predicate: linked-record, params: { kind: waiver, link: item } }
     remediation: "Per task: red test-run then green (wf capture/record test --task <id>), or waive genuinely testless tasks with reason"
   - id: build.tasks-closed
