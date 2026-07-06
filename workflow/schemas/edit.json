@@ -1,0 +1,13 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/edit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "path": {},
+    "task": {}
+  },
+  "required": [
+    "path"
+  ],
+  "title": "wf record: edit",
+  "type": "object"
+}

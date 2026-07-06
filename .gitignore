@@ -1,0 +1,12 @@
+# engine binaries are release artifacts (built by CI on release tags);
+# dev builds stay local — the bootstrap builds from source under --plugin-dir
+bin/wf-*
+bin/VERSION
+bin/SHA256SUMS
+
+# go
+engine/coverage.out
+
+# local workflow state of this repo itself (dogfooding)
+.workflow/state/lock
+.workflow/local/

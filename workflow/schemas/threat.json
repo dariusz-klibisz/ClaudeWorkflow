@@ -1,0 +1,12 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/threat.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {}
+  },
+  "required": [
+    "entries"
+  ],
+  "title": "wf record: threat",
+  "type": "object"
+}

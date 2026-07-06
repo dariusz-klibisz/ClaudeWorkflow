@@ -1,0 +1,14 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/scope-boundary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "in_scope": {},
+    "out_of_scope": {}
+  },
+  "required": [
+    "in_scope",
+    "out_of_scope"
+  ],
+  "title": "wf record: scope-boundary",
+  "type": "object"
+}

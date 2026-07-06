@@ -1,0 +1,18 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/loop.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ac": {},
+    "cause": {},
+    "evidence": {},
+    "target": {}
+  },
+  "required": [
+    "ac",
+    "cause",
+    "evidence",
+    "target"
+  ],
+  "title": "wf record: loop",
+  "type": "object"
+}

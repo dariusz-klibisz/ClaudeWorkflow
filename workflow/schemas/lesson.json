@@ -1,0 +1,15 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/lesson.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "check": {},
+    "status": {},
+    "text": {}
+  },
+  "required": [
+    "text",
+    "status"
+  ],
+  "title": "wf record: lesson",
+  "type": "object"
+}

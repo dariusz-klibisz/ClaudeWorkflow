@@ -1,0 +1,13 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/origin.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "attribution": {},
+    "commit": {}
+  },
+  "required": [
+    "attribution"
+  ],
+  "title": "wf record: origin",
+  "type": "object"
+}

@@ -1,0 +1,197 @@
+{
+  "description": "wf enforcement spine: Stop/task/verdict gates, tool gates, capture, and context injection (all generated from workflow/workflow.yaml)",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "capture",
+              "test"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "args": [
+              "capture",
+              "edit"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "gate",
+              "skill"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Skill"
+      },
+      {
+        "hooks": [
+          {
+            "args": [
+              "gate",
+              "edit"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          {
+            "args": [
+              "gate",
+              "bash"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh\"",
+            "timeout": 60,
+            "type": "command"
+          },
+          {
+            "command": "\u0026 \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.ps1\"",
+            "shell": "powershell",
+            "timeout": 60,
+            "type": "command"
+          },
+          {
+            "args": [
+              "inject",
+              "session"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 15,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "gate",
+              "stop"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 15,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "inject",
+              "agent"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "^wf:(critic|design-reviewer|ux-design-reviewer|code-quality-reviewer|code-security-reviewer|code-testing-reviewer|design-conformance-reviewer|adversary|lens-reviewer|ux-reviewer|auditor)$"
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "gate",
+              "verdict"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 15,
+            "type": "command"
+          }
+        ],
+        "matcher": "^wf:(critic|design-reviewer|ux-design-reviewer|code-quality-reviewer|code-security-reviewer|code-testing-reviewer|design-conformance-reviewer|adversary|lens-reviewer|ux-reviewer|auditor)$"
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "gate",
+              "task-complete"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 15,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "TaskCreated": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "gate",
+              "task-create"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 10,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "inject",
+              "turn"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 10,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

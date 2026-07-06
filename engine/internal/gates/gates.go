@@ -611,11 +611,23 @@ func responseExit(raw json.RawMessage) (int, bool) {
 }
 
 func activeTask(env *contracts.Env) (string, []string) {
-	var tid string
-	var acs []string
-	count := 0
-	for _, tr := range env.Records("task") {
-		if s, _ := tr.Data["status"].(string); s == "in_progress" {
+	// prefer the single in_progress task; fall back to a single open one
+	// (the common one-task flow where the agent skipped the status update)
+	for _, statuses := range [][]string{{"in_progress"}, {"in_progress", "open"}} {
+		var tid string
+		var acs []string
+		count := 0
+		for _, tr := range env.Records("task") {
+			s, _ := tr.Data["status"].(string)
+			match := false
+			for _, want := range statuses {
+				if s == want {
+					match = true
+				}
+			}
+			if !match {
+				continue
+			}
 			count++
 			tid, _ = tr.Data["tid"].(string)
 			acs = nil
@@ -627,11 +639,11 @@ func activeTask(env *contracts.Env) (string, []string) {
 				}
 			}
 		}
+		if count == 1 {
+			return tid, acs
+		}
 	}
-	if count != 1 {
-		return "", nil
-	}
-	return tid, acs
+	return "", nil
 }
 
 // CaptureEdit appends the edit→task binding ledger (never blocks).

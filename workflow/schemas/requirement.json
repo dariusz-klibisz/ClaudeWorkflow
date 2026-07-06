@@ -1,0 +1,20 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/requirement.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acs": {},
+    "level": {},
+    "rid": {},
+    "status": {},
+    "text": {}
+  },
+  "required": [
+    "rid",
+    "level",
+    "text",
+    "acs",
+    "status"
+  ],
+  "title": "wf record: requirement",
+  "type": "object"
+}

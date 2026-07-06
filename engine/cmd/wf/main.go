@@ -55,6 +55,17 @@ func run(args []string) int {
 		return captureCmd(projectDir, rest)
 	}
 
+	// doctor --bootstrap verifies the install before any project is adopted
+	if cmd == "doctor" && len(rest) > 0 && rest[0] == "--bootstrap" {
+		sp, err := loadSpecOnly()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "wf:", err)
+			return 3
+		}
+		fmt.Println("wf", Version, "— spec:", len(sp.Contracts), "contract items,", len(sp.Roster), "agents")
+		return 0
+	}
+
 	ctl, err := openCtl(projectDir, cmd == "init")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wf:", err)
@@ -136,6 +147,14 @@ func resolveSpecPath() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("workflow spec not found (set WF_SPEC or CLAUDE_PLUGIN_ROOT)")
+}
+
+func loadSpecOnly() (*spec.Spec, error) {
+	p, err := resolveSpecPath()
+	if err != nil {
+		return nil, err
+	}
+	return spec.Load(p, "")
 }
 
 func openCtl(projectDir string, initMode bool) (*runctl.Ctl, error) {

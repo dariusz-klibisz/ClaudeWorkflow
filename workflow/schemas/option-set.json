@@ -1,0 +1,18 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/option-set.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "candidates": {},
+    "rejected": {},
+    "selected": {},
+    "stage": {}
+  },
+  "required": [
+    "stage",
+    "candidates",
+    "selected",
+    "rejected"
+  ],
+  "title": "wf record: option-set",
+  "type": "object"
+}

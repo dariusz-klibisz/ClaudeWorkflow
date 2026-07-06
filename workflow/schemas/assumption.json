@@ -1,0 +1,13 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/assumption.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "high_risk": {},
+    "text": {}
+  },
+  "required": [
+    "text"
+  ],
+  "title": "wf record: assumption",
+  "type": "object"
+}

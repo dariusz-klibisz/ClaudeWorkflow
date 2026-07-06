@@ -1,0 +1,15 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/smoke-run.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cmd": {},
+    "exit": {},
+    "target": {}
+  },
+  "required": [
+    "cmd",
+    "exit"
+  ],
+  "title": "wf record: smoke-run",
+  "type": "object"
+}

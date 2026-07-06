@@ -1,0 +1,14 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/attack-path.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {},
+    "mitigated": {}
+  },
+  "required": [
+    "entries",
+    "mitigated"
+  ],
+  "title": "wf record: attack-path",
+  "type": "object"
+}

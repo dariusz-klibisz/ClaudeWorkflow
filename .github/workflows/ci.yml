@@ -1,0 +1,62 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: engine/go.sum
+      - name: vet + race tests
+        working-directory: engine
+        run: |
+          go vet ./...
+          go test -race ./...
+
+  generated-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: engine/go.sum
+      - name: generated files current (hooks.json, schemas, agent presence)
+        working-directory: engine
+        run: go run ./gen -check
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: engine/go.sum
+      - name: build all release targets
+        run: make dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wf-binaries
+          path: |
+            bin/wf-*
+            bin/VERSION
+            bin/SHA256SUMS
+
+  plugin-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: validate plugin
+        run: claude plugin validate .

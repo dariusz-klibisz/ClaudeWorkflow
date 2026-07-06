@@ -1,0 +1,14 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/ac-verdict.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ac": {},
+    "status": {}
+  },
+  "required": [
+    "ac",
+    "status"
+  ],
+  "title": "wf record: ac-verdict",
+  "type": "object"
+}

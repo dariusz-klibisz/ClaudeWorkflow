@@ -1,0 +1,12 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/completeness.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "items": {}
+  },
+  "required": [
+    "items"
+  ],
+  "title": "wf record: completeness",
+  "type": "object"
+}

@@ -1,0 +1,19 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/verdict.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agent": {},
+    "criticals": {},
+    "majors": {},
+    "scope": {},
+    "status": {}
+  },
+  "required": [
+    "agent",
+    "status",
+    "criticals",
+    "majors"
+  ],
+  "title": "wf record: verdict",
+  "type": "object"
+}

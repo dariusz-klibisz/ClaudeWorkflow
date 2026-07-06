@@ -1,0 +1,14 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/reclassify.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "family": {},
+    "intent": {},
+    "result": {}
+  },
+  "required": [
+    "result"
+  ],
+  "title": "wf record: reclassify",
+  "type": "object"
+}

@@ -1,0 +1,16 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/ambiguity.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "disposition": {},
+    "lens": {},
+    "none": {},
+    "text": {}
+  },
+  "required": [
+    "lens",
+    "disposition"
+  ],
+  "title": "wf record: ambiguity",
+  "type": "object"
+}

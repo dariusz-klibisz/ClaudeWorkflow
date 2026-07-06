@@ -1,0 +1,19 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/task.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ac_links": {},
+    "dod": {},
+    "status": {},
+    "subject": {},
+    "tid": {}
+  },
+  "required": [
+    "tid",
+    "subject",
+    "dod",
+    "status"
+  ],
+  "title": "wf record: task",
+  "type": "object"
+}

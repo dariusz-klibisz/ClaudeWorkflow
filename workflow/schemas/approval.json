@@ -1,0 +1,13 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/approval.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "gate": {},
+    "payload_hash": {}
+  },
+  "required": [
+    "gate"
+  ],
+  "title": "wf record: approval",
+  "type": "object"
+}

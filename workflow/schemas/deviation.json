@@ -1,0 +1,14 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/deviation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "status": {},
+    "text": {}
+  },
+  "required": [
+    "text",
+    "status"
+  ],
+  "title": "wf record: deviation",
+  "type": "object"
+}

@@ -1,0 +1,15 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/escape.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {},
+    "level": {},
+    "reason": {}
+  },
+  "required": [
+    "action",
+    "reason"
+  ],
+  "title": "wf record: escape",
+  "type": "object"
+}

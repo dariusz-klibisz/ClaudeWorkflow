@@ -1,0 +1,14 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/risk.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "lenses": {},
+    "signals": {}
+  },
+  "required": [
+    "signals",
+    "lenses"
+  ],
+  "title": "wf record: risk",
+  "type": "object"
+}

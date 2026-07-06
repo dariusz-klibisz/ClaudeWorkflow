@@ -1,0 +1,12 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/rollback-readiness.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "na": {},
+    "procedure": {},
+    "trigger": {}
+  },
+  "required": null,
+  "title": "wf record: rollback-readiness",
+  "type": "object"
+}

@@ -1,0 +1,16 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/classification.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "family": {},
+    "intent": {},
+    "restated": {}
+  },
+  "required": [
+    "family",
+    "intent",
+    "restated"
+  ],
+  "title": "wf record: classification",
+  "type": "object"
+}

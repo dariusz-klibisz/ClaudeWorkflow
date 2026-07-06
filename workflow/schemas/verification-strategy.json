@@ -1,0 +1,15 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/verification-strategy.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ac": {},
+    "command": {},
+    "method": {}
+  },
+  "required": [
+    "ac",
+    "method"
+  ],
+  "title": "wf record: verification-strategy",
+  "type": "object"
+}

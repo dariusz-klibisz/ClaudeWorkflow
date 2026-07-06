@@ -1,0 +1,13 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/deps.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "detail": {},
+    "verdict": {}
+  },
+  "required": [
+    "verdict"
+  ],
+  "title": "wf record: deps",
+  "type": "object"
+}

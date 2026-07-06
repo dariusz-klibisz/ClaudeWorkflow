@@ -1,0 +1,14 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/commit-origin.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "commit": {},
+    "run": {}
+  },
+  "required": [
+    "commit",
+    "run"
+  ],
+  "title": "wf record: commit-origin",
+  "type": "object"
+}

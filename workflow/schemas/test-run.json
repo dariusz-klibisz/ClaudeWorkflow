@@ -1,0 +1,21 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/test-run.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ac": {},
+    "category": {},
+    "cmd": {},
+    "exit": {},
+    "filtered": {},
+    "grounded": {},
+    "summary": {},
+    "task": {}
+  },
+  "required": [
+    "cmd",
+    "exit",
+    "grounded"
+  ],
+  "title": "wf record: test-run",
+  "type": "object"
+}
