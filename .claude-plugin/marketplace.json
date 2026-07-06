@@ -1,0 +1,19 @@
+{
+  "name": "claude-workflow",
+  "owner": {
+    "name": "Dariusz Klibisz",
+    "url": "https://github.com/dariusz-klibisz"
+  },
+  "metadata": {
+    "description": "Marketplace for the wf enforced-development-workflow plugin",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "wf",
+      "source": "./",
+      "description": "Enforced development workflow: 7 phases, 3 route families, engine-verified contracts",
+      "category": "productivity"
+    }
+  ]
+}

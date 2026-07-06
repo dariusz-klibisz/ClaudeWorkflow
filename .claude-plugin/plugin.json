@@ -1,0 +1,12 @@
+{
+  "name": "wf",
+  "version": "0.1.0",
+  "description": "Enforced development workflow: 7 phases, 3 route families, engine-verified contracts. Gates at Stop, TaskCompleted, SubagentStop, and PreToolUse; state on disk; compaction-proof.",
+  "author": {
+    "name": "Dariusz Klibisz"
+  },
+  "homepage": "https://github.com/dariusz-klibisz/ClaudeWorkflow",
+  "repository": "https://github.com/dariusz-klibisz/ClaudeWorkflow",
+  "license": "MIT",
+  "keywords": ["workflow", "enforcement", "gates", "process"]
+}

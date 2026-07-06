@@ -1,0 +1,546 @@
+# The wf workflow specification (schema v1).
+#
+# THE single source of truth for phases, families, the gating roster, record
+# kinds, and phase-exit contract items. The engine loads, validates, and
+# interprets this file; hooks/hooks.json and workflow/schemas/*.json are
+# generated views of it (engine/gen). See workflow-redesign/03 §4.0.
+#
+# Predicate vocabulary (closed; implemented in engine/internal/contracts):
+#   record-exists   {kind, "filter?", "min?"}        ≥min records match (default 1)
+#   linked-record   {kind, link, "filter?"}        a record of kind whose field
+#                                                `link` == the per-each item id
+#   verdict-in      {agent, statuses, "scope?",    latest verdict of agent (and
+#                    "risky_with_dispositions?"}   scope) is in statuses
+#   approval        {gate}                       an approval event for gate
+#   no-open         {kind, field, open, "filter?"} no record left in an open state
+#   per-each        {kind, "each?", "filter?", item} item holds for every record
+#                                                (or sub-item of `each` field)
+#   any-of          {items: [...]}               at least one item holds
+#   red-green       {link}                       a failing test-run then a later
+#                                                passing one, both tagged with
+#                                                the per-each item id via `link`
+#
+# `when` conditions gate whether an item applies at all:
+#   when.intents: [..]      run intent tag is one of these
+#   when.config:  {key: v}  project config flag (e.g. ux: true)
+#   when.signals: [..]      run risk record contains one of these signals
+#   when.records: {kind, filter}  a matching record exists in the run
+#
+# `waivable: true` items accept `wf contract waive <id> --reason …`
+# (a recorded, trace-surfaced waiver — never silence).
+
+schema: 1
+
+families: [diff, artifact, assessment]
+
+intents:
+  diff: [new, fix, refactor, test, deploy]
+  artifact: [arch-design, doc-create, doc-update]
+  assessment: [code-review, arch-review, investigate, research]
+
+verdicts:
+  pass: [clean, safe, n/a]
+  fail: [changes-required, unsafe, unparsed]
+  conditional: [risky] # passes only with recorded dispositions
+
+phases:
+  - id: frame
+    order: 1
+    mode: interactive
+    skill: frame
+    participation: { diff: required, artifact: required, assessment: required }
+  - id: context
+    order: 2
+    mode: interactive-exit
+    skill: context
+    participation: { diff: required, artifact: required, assessment: required }
+  - id: design
+    order: 3
+    mode: interactive-exit
+    skill: design
+    participation: { diff: waivable, artifact: required, assessment: none }
+  - id: plan
+    order: 4
+    mode: interactive-exit
+    skill: plan
+    participation: { diff: required, artifact: required, assessment: required }
+  - id: build
+    order: 5
+    mode: auto-advance
+    skill: build
+    participation: { diff: required, artifact: required, assessment: required }
+  - id: verify
+    order: 6
+    mode: interactive-exit
+    skill: verify
+    participation: { diff: required, artifact: required, assessment: required }
+  - id: ship
+    order: 7
+    mode: interactive
+    skill: ship
+    participation: { diff: required, artifact: required, assessment: required }
+
+loops:
+  from: verify
+  targets: [build, design, plan]
+  max_per_run: 10
+  max_slip_per_ac: 2
+
+# ---------------------------------------------------------------------------
+# Roster (06 §2). gating: true ⇒ SubagentStop verdict gate + hooks matchers +
+# verdict-block section are generated for it; a gating name without an agent
+# file fails spec validation.
+# ---------------------------------------------------------------------------
+roster:
+  # Author-side
+  - { name: researcher, gating: false, phases: [context, design], model: inherit,
+      tools: [WebSearch, WebFetch, Read, Grep, Glob] }
+  - { name: designer, gating: false, phases: [design], model: opus,
+      tools: [Read, Grep, Glob] }
+  - { name: ux-designer, gating: false, phases: [design], model: opus,
+      tools: [Read, Grep, Glob], when: { config: { ux: true } } }
+  - { name: implementer, gating: false, phases: [build], model: inherit,
+      tools: [Read, Grep, Glob, Edit, Write, Bash] }
+  # Gating
+  - { name: critic, gating: true, phases: [design, plan], model: opus,
+      tools: [Read, Grep, Glob], maxTurns: 30 }
+  - { name: design-reviewer, gating: true, phases: [design], model: opus,
+      tools: [Read, Grep, Glob], maxTurns: 30, memory: project }
+  - { name: ux-design-reviewer, gating: true, phases: [design], model: opus,
+      tools: [Read, Grep, Glob], maxTurns: 30, when: { config: { ux: true } } }
+  - { name: code-quality-reviewer, gating: true, phases: [build], model: inherit,
+      tools: [Read, Grep, Glob], maxTurns: 40, memory: project }
+  - { name: code-security-reviewer, gating: true, phases: [build], model: inherit,
+      tools: [Read, Grep, Glob], maxTurns: 40 }
+  - { name: code-testing-reviewer, gating: true, phases: [build], model: inherit,
+      tools: [Read, Grep, Glob], maxTurns: 40 }
+  - { name: design-conformance-reviewer, gating: true, phases: [build, verify],
+      model: inherit, tools: [Read, Grep, Glob], maxTurns: 40 }
+  - { name: adversary, gating: true, phases: [frame, design, build, verify],
+      model: opus, tools: [Read, Grep, Glob], maxTurns: 40, memory: project }
+  - { name: lens-reviewer, gating: true, phases: [frame, verify], model: inherit,
+      tools: [Read, Grep, Glob], maxTurns: 30 }
+  - { name: ux-reviewer, gating: true, phases: [frame, build, verify],
+      model: inherit, tools: [Read, Grep, Glob], maxTurns: 30,
+      when: { config: { ux: true } } }
+  - { name: auditor, gating: true, phases: [ship], model: opus,
+      tools: [Read, Grep, Glob], maxTurns: 30 }
+
+# ---------------------------------------------------------------------------
+# Record kinds (08 §3). `fields` lists payload fields the engine validates at
+# write time (required unless `?`). Write-time validation is deliberately the
+# stronger layer: e.g. `wf record ac-verdict --status pass` refuses without a
+# linked grounded green test-run (diff family) — contracts then only check
+# existence/openness.
+# ---------------------------------------------------------------------------
+records:
+  - { kind: classification, fields: [family, intent, restated] }
+  - { kind: risk, fields: [signals, lenses] }
+  - { kind: ambiguity, fields: [lens, "text?", disposition, "none?"] } # disposition: resolved|logged|deferred|none
+  - { kind: requirement, fields: [rid, level, text, acs, status] } # acs[]: {id, text, verifiable}
+  - { kind: completeness, fields: [items] } # items[]: {case, disposition}
+  - { kind: assumption, fields: [text, "high_risk?"] }
+  - { kind: context-map, fields: [entries, sufficiency] }
+  - { kind: reclassify, fields: [result, "family?", "intent?"] } # result: confirmed|changed
+  - { kind: option-set, fields: [stage, candidates, selected, rejected] }
+  - { kind: threat, fields: [entries] }
+  - { kind: attack-path, fields: [entries, mitigated] }
+  - { kind: task, fields: [tid, subject, dod, "ac_links?", status] } # status: open|in_progress|done|carried
+  - { kind: verification-strategy, fields: [ac, method, "command?"] }
+  - { kind: deps, fields: [verdict, "detail?"] } # verdict: present|missing|n/a
+  - { kind: test-run, fields: [cmd, exit, "summary?", "ac?", "task?", "category?", grounded, "filtered?"] }
+  - { kind: verdict, fields: [agent, status, criticals, majors, "scope?"] }
+  - { kind: ac-verdict, fields: [ac, status] } # status: pass|fail|deferred
+  - { kind: approval, fields: [gate, "payload_hash?"] } # gate: frame|scope|design|plan|deferral|lesson|deviation
+  - { kind: artifact, fields: [path, status, "template?", "role?"] } # status: present|stub|missing
+  - { kind: deviation, fields: [text, status] } # status: pending|acked
+  - { kind: disposition, fields: [ref, text] }
+  - { kind: followup, fields: [text, status] } # status: open|task|next-run
+  - { kind: origin, fields: ["commit?", attribution] }
+  - { kind: commit-origin, fields: [commit, run] }
+  - { kind: metric, fields: [name, value] }
+  - { kind: lesson, fields: [text, status, "check?"] } # status: proposed|accepted|rejected
+  - { kind: loop, fields: [ac, cause, evidence, target] } # cause: slip|design|plan
+  - { kind: scope-boundary, fields: [in_scope, out_of_scope] }
+  - { kind: smoke-run, fields: [cmd, exit, "target?"] }
+  - { kind: rollback-readiness, fields: ["procedure?", "trigger?", "na?"] }
+  - { kind: trace-finding, fields: [text, severity, status] } # status: open|resolved|dispositioned
+  - { kind: waiver, fields: [item, reason] }
+  - { kind: escape, fields: [action, reason, "level?"] } # action: park|force|enforce-off
+
+# ---------------------------------------------------------------------------
+# Phase-exit contracts (03 §4). Items apply to the families listed (all three
+# when omitted) and only when their `when` conditions hold.
+# ---------------------------------------------------------------------------
+contracts:
+  # --- 4.1 Frame ------------------------------------------------------------
+  - id: frame.classification
+    phase: frame
+    predicate: record-exists
+    params: { kind: classification }
+    remediation: "Classify the task: wf record classification --family <f> --intent <i> --restated \"…\""
+  - id: frame.classification-approved
+    phase: frame
+    predicate: approval
+    params: { gate: frame }
+    remediation: "Confirm family+intent+restated task with the user, then: wf approve frame"
+  - id: frame.risk-scanned
+    phase: frame
+    predicate: record-exists
+    params: { kind: risk }
+    remediation: "Run the risk screen: wf risk scan (add agent-judged signals with --add)"
+  - id: frame.ambiguity-per-lens
+    phase: frame
+    predicate: per-each
+    params:
+      kind: risk
+      each: lenses
+      item: { predicate: linked-record, params: { kind: ambiguity, link: lens } }
+    remediation: "Per selected lens record ≥1 ambiguity (or an explicit reasoned none): wf record ambiguity --lens <l> …"
+  - id: frame.requirements
+    phase: frame
+    families: [diff, artifact]
+    predicate: record-exists
+    params: { kind: requirement }
+    remediation: "Elicit requirements with ACs: wf record requirement --rid SWR-1 --level software --text … --ac \"AC-1: …\""
+  - id: frame.completeness
+    phase: frame
+    families: [diff, artifact]
+    predicate: record-exists
+    params: { kind: completeness }
+    remediation: "Negative-space walk (error/empty/max/concurrent/unhappy), each item dispositioned: wf record completeness …"
+  - id: frame.abuse-cases
+    phase: frame
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: adversary, scope: abuse-case, statuses: [clean, safe, n/a] }
+    remediation: "Spawn @wf:adversary in abuse-case mode on the framed requirements"
+  - id: frame.security-lens
+    phase: frame
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: lens-reviewer, scope: security, statuses: [clean, safe, n/a] }
+    remediation: "Spawn @wf:lens-reviewer with the security lens"
+  - id: frame.origin
+    phase: frame
+    when: { intents: [fix, investigate] }
+    predicate: record-exists
+    params: { kind: origin }
+    remediation: "Discover the defect origin: wf origin discover (or wf record origin --attribution …)"
+
+  # --- 4.2 Context ------------------------------------------------------------
+  - id: context.map
+    phase: context
+    predicate: record-exists
+    params: { kind: context-map }
+    remediation: "Map the code/reality touched: wf record context-map --entries … --sufficiency …"
+  - id: context.reclassify-checkpoint
+    phase: context
+    predicate: record-exists
+    params: { kind: reclassify }
+    remediation: "Re-check the classification against the map: wf record reclassify --result confirmed (or --result changed → branch)"
+  - id: context.scope-approved
+    phase: context
+    predicate: approval
+    params: { gate: scope }
+    remediation: "Baseline requirements + high-risk assumptions, present to the user, then: wf approve scope"
+  - id: context.research-grounded
+    phase: context
+    predicate: verdict-in
+    params: { agent: researcher, statuses: [clean, safe, n/a] }
+    waivable: true
+    remediation: "If external research ran, record the researcher verdict; else record n/a"
+
+  # --- 4.3 Design (waivable phase for trivial diffs via `wf phase waive design`) ---
+  - id: design.options-system
+    phase: design
+    families: [diff, artifact]
+    predicate: record-exists
+    params: { kind: option-set, filter: { stage: system } }
+    remediation: "Enumerate 2–4 genuine system-level candidates: wf record option-set --stage system …"
+  - id: design.options-software
+    phase: design
+    families: [diff, artifact]
+    predicate: record-exists
+    params: { kind: option-set, filter: { stage: software } }
+    remediation: "Enumerate software-design candidates: wf record option-set --stage software …"
+  - id: design.options-ux
+    phase: design
+    families: [diff, artifact]
+    when: { config: { ux: true } }
+    predicate: record-exists
+    params: { kind: option-set, filter: { stage: ux } }
+    remediation: "Enumerate UX candidates: wf record option-set --stage ux …"
+  - id: design.reviewed
+    phase: design
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: design-reviewer, statuses: [clean] }
+    remediation: "Spawn @wf:design-reviewer on the selected option; fix findings to clean"
+  - id: design.ux-reviewed
+    phase: design
+    families: [diff, artifact]
+    when: { config: { ux: true } }
+    predicate: verdict-in
+    params: { agent: ux-design-reviewer, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:ux-design-reviewer on the UX design (n/a for no-UI changes)"
+  - id: design.threat-model
+    phase: design
+    families: [diff, artifact]
+    when: { signals: [auth, network, boundary, data] }
+    predicate: record-exists
+    params: { kind: threat }
+    remediation: "Risk signals present ⇒ STRIDE threat model: wf record threat …"
+  - id: design.attack-tree
+    phase: design
+    families: [diff, artifact]
+    when: { signals: [auth, network, boundary] }
+    predicate: verdict-in
+    params: { agent: adversary, scope: attack-tree, statuses: [clean, safe, n/a] }
+    remediation: "Spawn @wf:adversary in attack-tree mode; mitigate or ADR-accept high-feasibility paths"
+  - id: design.critic
+    phase: design
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: critic, statuses: [safe, n/a], risky_with_dispositions: true }
+    remediation: "Spawn @wf:critic for the independent go/no-go; disposition risky concerns"
+  - id: design.adr
+    phase: design
+    families: [diff, artifact]
+    when: { records: { kind: option-set, filter: { stage: system } } }
+    predicate: record-exists
+    params: { kind: artifact, filter: { template: adr } }
+    waivable: true
+    remediation: "Architectural decision ⇒ ADR: wf doc new adr (alternatives = the option-set IDs)"
+  - id: design.approved
+    phase: design
+    families: [diff, artifact]
+    predicate: approval
+    params: { gate: design }
+    remediation: "Present selected options + risks + testability sketch, then: wf approve design"
+
+  # --- 4.4 Plan ------------------------------------------------------------
+  - id: plan.tasks
+    phase: plan
+    predicate: record-exists
+    params: { kind: task }
+    remediation: "Decompose into atomic tasks with DoD + AC links: wf record task --subject … --dod … --ac AC-1"
+  - id: plan.verification-strategy
+    phase: plan
+    families: [diff, artifact]
+    predicate: per-each
+    params:
+      kind: requirement
+      each: acs
+      item: { predicate: linked-record, params: { kind: verification-strategy, link: ac } }
+    remediation: "Per AC define how it will be verified: wf record verification-strategy --ac <id> --method …"
+  - id: plan.scope-boundary
+    phase: plan
+    predicate: record-exists
+    params: { kind: scope-boundary }
+    remediation: "Record what is explicitly out of scope: wf record scope-boundary …"
+  - id: plan.ambiguities-closed
+    phase: plan
+    predicate: no-open
+    params: { kind: ambiguity, field: disposition, open: [deferred] }
+    remediation: "Disposition the deferred Frame ambiguities (resolve, log, or user-approved deferral)"
+  - id: plan.deps
+    phase: plan
+    families: [diff]
+    predicate: record-exists
+    params: { kind: deps, filter: { verdict: [present, n/a] } }
+    remediation: "Check declared dependencies exist: wf deps check (missing blocks; n/a is the honest escape)"
+  - id: plan.critic
+    phase: plan
+    predicate: verdict-in
+    params: { agent: critic, statuses: [safe, n/a], risky_with_dispositions: true }
+    waivable: true
+    remediation: "Spawn @wf:critic on the plan (waivable if the Design critic covered a combined presentation — record the waiver)"
+  - id: plan.approved
+    phase: plan
+    predicate: approval
+    params: { gate: plan }
+    remediation: "Present the task breakdown + verification strategy, then: wf approve plan"
+
+  # --- 4.5 Build (auto-advance) ---------------------------------------------
+  - id: build.test-first
+    phase: build
+    families: [diff]
+    predicate: per-each
+    params:
+      kind: task
+      item:
+        predicate: any-of
+        params:
+          items:
+            - { predicate: red-green, params: { link: task } }
+            - { predicate: linked-record, params: { kind: test-run, link: task, filter: { grounded: true, exit: 0 } } }
+            - { predicate: linked-record, params: { kind: waiver, link: item } }
+    remediation: "Per task: red test-run then green (wf capture/record test --task <id>), or waive genuinely testless tasks with reason"
+  - id: build.tasks-closed
+    phase: build
+    predicate: no-open
+    params: { kind: task, field: status, open: [open, in_progress] }
+    remediation: "Complete every task (TaskUpdate → completed; the TaskCompleted gate checks each DoD) or carry it: wf record followup --status next-run"
+  - id: build.review-quality
+    phase: build
+    families: [diff]
+    predicate: verdict-in
+    params: { agent: code-quality-reviewer, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:code-quality-reviewer on the diff; fix to clean"
+  - id: build.review-security
+    phase: build
+    families: [diff]
+    predicate: verdict-in
+    params: { agent: code-security-reviewer, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:code-security-reviewer on the diff; fix to clean"
+  - id: build.review-testing
+    phase: build
+    families: [diff]
+    predicate: verdict-in
+    params: { agent: code-testing-reviewer, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:code-testing-reviewer on the diff; fix to clean"
+  - id: build.review-conformance
+    phase: build
+    families: [diff]
+    predicate: verdict-in
+    params: { agent: design-conformance-reviewer, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:design-conformance-reviewer: diff vs approved design/ADR"
+  - id: build.review-adversary
+    phase: build
+    families: [diff]
+    predicate: verdict-in
+    params: { agent: adversary, scope: red-team, statuses: [clean, safe, n/a] }
+    remediation: "Spawn @wf:adversary in red-team mode on the diff"
+  - id: build.review-ux
+    phase: build
+    families: [diff]
+    when: { config: { ux: true } }
+    predicate: verdict-in
+    params: { agent: ux-reviewer, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:ux-reviewer (n/a for no-UI diffs)"
+  - id: build.artifact-authored
+    phase: build
+    families: [artifact, assessment]
+    predicate: record-exists
+    params: { kind: artifact, filter: { status: present } }
+    remediation: "Author the deliverable and record it: wf doc new … / wf record artifact --path … --status present"
+  - id: build.deviations-acked
+    phase: build
+    predicate: no-open
+    params: { kind: deviation, field: status, open: [pending] }
+    remediation: "Every departure from the approved design needs user ack: wf approve deviation --ref …"
+
+  # --- 4.6 Verify ------------------------------------------------------------
+  - id: verify.ac-verdicts
+    phase: verify
+    families: [diff, artifact]
+    predicate: per-each
+    params:
+      kind: requirement
+      each: acs
+      item: { predicate: linked-record, params: { kind: ac-verdict, link: ac } }
+    remediation: "Per AC record a grounded verdict: wf record ac-verdict --ac <id> --status pass|fail|deferred (pass requires a linked green test-run)"
+  - id: verify.no-failing-acs
+    phase: verify
+    families: [diff, artifact]
+    predicate: no-open
+    params: { kind: ac-verdict, field: status, open: [fail] }
+    remediation: "Undispositioned failing AC ⇒ loop: wf loop --ac <id> --cause slip|design|plan --evidence …"
+  - id: verify.adversary-confirm
+    phase: verify
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: adversary, scope: red-team, statuses: [clean, safe, n/a] }
+    remediation: "Adversary confirmation pass over the verified change"
+  - id: verify.conformance-confirm
+    phase: verify
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: design-conformance-reviewer, statuses: [clean, n/a] }
+    remediation: "Design-conformance confirmation: implementation matches the approved design"
+  - id: verify.ux-confirm
+    phase: verify
+    families: [diff, artifact]
+    when: { config: { ux: true } }
+    predicate: verdict-in
+    params: { agent: ux-reviewer, statuses: [clean, n/a] }
+    remediation: "UX/accessibility confirmation pass"
+  - id: verify.lens-pass
+    phase: verify
+    families: [assessment]
+    predicate: verdict-in
+    params: { agent: lens-reviewer, statuses: [clean, safe, n/a] }
+    remediation: "Lens pass over the report: spawn @wf:lens-reviewer"
+  - id: verify.security-baseline
+    phase: verify
+    families: [diff]
+    predicate: record-exists
+    params: { kind: test-run, filter: { category: secret-scan, grounded: true, exit: 0 } }
+    waivable: true
+    remediation: "Run the secret scan (e.g. gitleaks); filtered/exit-null output is ungrounded and never passes"
+  - id: verify.quality-floor
+    phase: verify
+    families: [diff]
+    when: { config: { thresholds: true } }
+    predicate: no-open
+    params: { kind: metric, field: below_threshold, open: [true] }
+    remediation: "A measured metric is below its configured floor — fix or re-measure"
+  - id: verify.smoke
+    phase: verify
+    when: { intents: [deploy] }
+    predicate: record-exists
+    params: { kind: smoke-run, filter: { exit: 0 } }
+    remediation: "Deploy intent ⇒ grounded smoke/health-check run: wf record smoke-run …"
+  - id: verify.rollback
+    phase: verify
+    when: { intents: [deploy] }
+    predicate: record-exists
+    params: { kind: rollback-readiness }
+    remediation: "Deploy intent ⇒ rollback procedure + trigger (or explicit n/a with reason)"
+  - id: verify.report-present
+    phase: verify
+    families: [assessment]
+    predicate: record-exists
+    params: { kind: artifact, filter: { role: deliverable-report, status: present } }
+    remediation: "The findings report must exist and not be a stub"
+  - id: verify.origin-attributed
+    phase: verify
+    when: { intents: [investigate] }
+    predicate: record-exists
+    params: { kind: origin }
+    remediation: "Investigation without origin attribution is incomplete: wf origin discover"
+
+  # --- 4.7 Ship ------------------------------------------------------------
+  - id: ship.trace-clean
+    phase: ship
+    predicate: no-open
+    params: { kind: trace-finding, field: status, open: [open] }
+    remediation: "Run wf trace, then resolve or disposition every finding"
+  - id: ship.audited
+    phase: ship
+    predicate: verdict-in
+    params: { agent: auditor, statuses: [clean, safe, n/a] }
+    remediation: "Spawn @wf:auditor over the resolved trace report (HIGH findings block)"
+  - id: ship.delivery
+    phase: ship
+    families: [diff]
+    predicate: record-exists
+    params: { kind: artifact, filter: { role: delivery } }
+    remediation: "Record the delivery package (PR/release): wf record artifact --role delivery …"
+  - id: ship.delivery-manifest
+    phase: ship
+    when: { intents: [deploy] }
+    predicate: record-exists
+    params: { kind: artifact, filter: { role: delivery-manifest } }
+    remediation: "Deploy intent ⇒ delivery manifest incl. target + config diff: wf doc new delivery-manifest"
+  - id: ship.lessons-dispositioned
+    phase: ship
+    predicate: no-open
+    params: { kind: lesson, field: status, open: [proposed] }
+    remediation: "Accept or reject each proposed lesson: wf lessons accept|reject <id>"
+  - id: ship.tasks-resolved
+    phase: ship
+    predicate: no-open
+    params: { kind: followup, field: status, open: [open] }
+    remediation: "Convert open followups to tasks or carry them: wf record followup --status next-run"
