@@ -13,6 +13,8 @@ produce the UX option-set (stage `ux`) and the UX design document.
 
 ## Corpus routing
 
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
+
 - `reference/ux/00-index.md` — pick the deep-dive path for the surface type
   (forms → `07`, navigation → `08`-ish, platform specifics → `13`–`16`,
   AI-product patterns → `20`)

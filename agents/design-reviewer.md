@@ -17,6 +17,8 @@ raise must be fixed and re-reviewed, so only raise what you would block on.
 
 ## Corpus routing (read before judging; cite file + section in findings)
 
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
+
 - `reference/design/00-index.md` — pick the reading path for the change type
 - `reference/design/01-architecture-principles.md` — boundaries, coupling,
   dependency direction, evolution

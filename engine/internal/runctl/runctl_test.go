@@ -262,6 +262,59 @@ func TestPhaseWaiveDesignForDiff(t *testing.T) {
 	}
 }
 
+// Regression for the power5 run: chaining updates= onto a prior update's
+// event ID must resolve to the original record — and unknown targets must be
+// rejected at write time, never silently no-op.
+func TestUpdatesChainingAndValidation(t *testing.T) {
+	c := newCtl(t)
+	r, _ := c.RunStart("diff", "fix")
+	orig, err := c.Record("task", map[string]any{"tid": "T-1", "subject": "s", "dod": []any{"d"}, "status": "open"}, false, "agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	up1, err := c.Record("task", map[string]any{"updates": orig.ID, "status": "in_progress"}, false, "agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the live bug: targeting the UPDATE event's ID instead of the original
+	if _, err := c.Record("task", map[string]any{"updates": up1.ID, "status": "done"}, false, "agent"); err != nil {
+		t.Fatalf("chained update must resolve transitively: %v", err)
+	}
+	env, _ := c.Env(r)
+	tasks := env.Records("task")
+	if len(tasks) != 1 {
+		t.Fatalf("want 1 effective task, got %d", len(tasks))
+	}
+	if s, _ := tasks[0].Data["status"].(string); s != "done" {
+		t.Fatalf("chained update lost: status=%s", s)
+	}
+	// unknown target: hard error, not a silent no-op
+	if _, err := c.Record("task", map[string]any{"updates": "01NOTAREALID0000000000000", "status": "done"}, false, "agent"); err == nil {
+		t.Fatal("update targeting an unknown record must be rejected")
+	}
+}
+
+// Regression for the power5 run: verdicts recorded under scoped or unknown
+// agent names silently failed the contracts.
+func TestVerdictAgentNameValidation(t *testing.T) {
+	c := newCtl(t)
+	r, _ := c.RunStart("diff", "fix")
+	// scoped name normalizes
+	ev, err := c.Record("verdict", map[string]any{"agent": "wf:adversary", "status": "clean", "criticals": 0, "majors": 0, "scope": "abuse-case"}, false, "agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Data["agent"] != "adversary" {
+		t.Errorf("scoped name must normalize: %v", ev.Data["agent"])
+	}
+	// unknown name rejected with the roster in the message
+	_, err = c.Record("verdict", map[string]any{"agent": "abuse-case-analyst", "status": "clean", "criticals": 0, "majors": 0}, false, "agent")
+	if err == nil || !strings.Contains(err.Error(), "roster") {
+		t.Fatalf("unknown agent must be rejected naming the roster: %v", err)
+	}
+	_ = r
+}
+
 func TestBranchCarriesLineage(t *testing.T) {
 	c := newCtl(t)
 	parent, _ := c.RunStart("diff", "fix")

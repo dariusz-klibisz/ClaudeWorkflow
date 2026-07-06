@@ -15,6 +15,9 @@ verdict's `scope:` line. Use `reference/coding/04-security.md` for the
 attack-class vocabulary; your project memory accumulates this codebase's
 attack surface across runs.
 
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
+
+
 ## Mode: abuse-case (Frame)
 
 Input: the recorded requirements/ACs and risk signals.

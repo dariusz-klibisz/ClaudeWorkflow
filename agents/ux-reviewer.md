@@ -13,6 +13,8 @@ templates, components, styles, and interaction code in the diff.
 
 ## Corpus routing
 
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
+
 - `reference/ux/21-agent-checklists.md` — implementation-review checklist
 - `reference/ux/05-accessibility.md` + `06-aria-widget-reference.md` —
   WCAG 2.2 AA + correct ARIA usage (wrong ARIA is worse than none)

@@ -30,6 +30,7 @@ type Env struct {
 	Events []store.Event // the run's events, append order
 	// derived
 	records map[string][]Record // effective records by kind (updates folded)
+	alias   map[string]string   // any record/update event ID -> original record ID
 }
 
 // Record is an effective record: the original event with any later
@@ -47,13 +48,21 @@ func (e *Env) build() {
 		return
 	}
 	e.records = map[string][]Record{}
+	e.alias = map[string]string{}
 	byID := map[string]*Record{}
 	kindOf := map[string]string{}
+	// alias maps any event ID (original or update) to the original record —
+	// chaining `updates=` onto a prior update's ID must resolve transitively
+	// (the silent-no-op bug the power5 run hit).
+	alias := e.alias
 	for i, ev := range e.Events {
 		if ev.Kind == "run" || ev.Kind == "phase" {
 			continue // engine transitions, not records
 		}
 		if target, ok := ev.Data["updates"].(string); ok && target != "" {
+			if orig, ok := alias[target]; ok {
+				target = orig
+			}
 			if rec, ok := byID[target]; ok {
 				for k, v := range ev.Data {
 					if k == "updates" {
@@ -62,9 +71,11 @@ func (e *Env) build() {
 					rec.Data[k] = v
 				}
 				rec.Auto = rec.Auto || ev.Auto
+				alias[ev.ID] = target
 			}
 			continue
 		}
+		alias[ev.ID] = ev.ID
 		data := map[string]any{}
 		for k, v := range ev.Data {
 			data[k] = v
@@ -88,6 +99,14 @@ func (e *Env) build() {
 func (e *Env) Records(kind string) []Record {
 	e.build()
 	return e.records[kind]
+}
+
+// ResolveRecordID maps any record or update event ID to the original record
+// ID (used to validate `updates=` targets at write time).
+func (e *Env) ResolveRecordID(id string) (string, bool) {
+	e.build()
+	orig, ok := e.alias[id]
+	return orig, ok
 }
 
 // ---------------------------------------------------------------------------

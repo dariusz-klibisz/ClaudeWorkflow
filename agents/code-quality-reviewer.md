@@ -17,6 +17,8 @@ block on.
 
 ## Corpus routing (read the relevant files; cite rule IDs like `GEN-ERR-03`)
 
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
+
 - `reference/coding/01-principles.md` — naming, structure, simplicity,
   defensive boundaries
 - `reference/coding/03-error-handling.md` — the error-path contract

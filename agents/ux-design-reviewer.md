@@ -14,6 +14,8 @@ by anyone, including the user.
 
 ## Corpus routing
 
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
+
 - `reference/ux/21-agent-checklists.md` — your primary instrument; walk the
   design-review checklist literally
 - `reference/ux/05-accessibility.md` — WCAG 2.2 AA mapping: keyboard path,

@@ -373,7 +373,20 @@ func (c *Ctl) Record(kind string, data map[string]any, auto bool, actor string) 
 	if !ok {
 		return nil, fmt.Errorf("unknown record kind %q", kind)
 	}
-	if _, isUpdate := data["updates"]; !isUpdate {
+	if target, isUpdate := data["updates"].(string); isUpdate {
+		// an update must reference a known record (original or one of its
+		// update events — resolved transitively). Silent no-ops broke the
+		// power5 run's task bindings.
+		env, err := c.Env(r)
+		if err != nil {
+			return nil, err
+		}
+		orig, ok := env.ResolveRecordID(target)
+		if !ok {
+			return nil, fmt.Errorf("updates=%s does not reference any record in this run — target the record's creation ID (wf status / the ID printed when it was recorded)", target)
+		}
+		data["updates"] = orig // normalize chains to the original at write time
+	} else {
 		for _, f := range rk.Required() {
 			if _, ok := data[f]; !ok {
 				return nil, fmt.Errorf("%s requires field %q (fields: %s)", kind, f, strings.Join(rk.Fields, ", "))
@@ -408,6 +421,18 @@ func (c *Ctl) validateRecord(r *store.Run, kind string, data map[string]any, aut
 			}
 		}
 	case "verdict":
+		// agent must be a roster name (scoped "wf:" prefixes are normalized;
+		// unknown names silently failed contracts in the power5 run)
+		agent, _ := data["agent"].(string)
+		agent = strings.TrimPrefix(agent, "wf:")
+		if _, ok := c.Spec.AgentByName(agent); !ok {
+			names := make([]string, 0, len(c.Spec.Roster))
+			for _, a := range c.Spec.Roster {
+				names = append(names, a.Name)
+			}
+			return fmt.Errorf("verdict agent %q is not in the roster (%s)", agent, strings.Join(names, ", "))
+		}
+		data["agent"] = agent
 		status, _ := data["status"].(string)
 		if !c.verdictKnown(status) {
 			return fmt.Errorf("verdict status %q not in vocabulary", status)

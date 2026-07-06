@@ -75,9 +75,11 @@ func hooksJSON(sp *spec.Spec) []byte {
 	// and a `shell:"powershell"` entry errors visibly on hosts without
 	// PowerShell. Native-Windows bootstrap is deferred to M5 (run
 	// scripts/bootstrap.ps1 once by hand until then — see skills/init).
+	// Invoked via `sh <script>` so it works even when the cache copy lost
+	// the executable bit (the dead-hooks incident: git had mode 100644).
 	bootstrapSh := map[string]any{
 		"type": "command", "timeout": 60,
-		"command": `"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh"`,
+		"command": `sh "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh"`,
 	}
 
 	doc := map[string]any{

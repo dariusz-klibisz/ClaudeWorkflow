@@ -79,7 +79,7 @@
       {
         "hooks": [
           {
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh\"",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh\"",
             "timeout": 60,
             "type": "command"
           },

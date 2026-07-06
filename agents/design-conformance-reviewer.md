@@ -21,6 +21,8 @@ whether the code is the design that was approved.
 - `refactor` intent or waived Design phase: there is no approved design —
   infer the **standing architecture** from the codebase and check the diff
   preserves it. State explicitly that confidence is reduced.
+
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
 - `reference/design/03-software-design-principles.md` for judging whether a
   deviation is structural or cosmetic.
 

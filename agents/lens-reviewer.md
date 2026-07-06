@@ -26,6 +26,9 @@ or an explicit reasoned "none"** — never an unexamined pass.
 | adversarial | (usually the adversary's job — as a lens: what's the laziest way to misuse this?) |
 | usability | Can the intended user succeed without instructions? (`reference/ux/01-core-principles.md` if UX applies) |
 
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
+
+
 ## At Frame (ambiguity mode)
 
 Input: the restated task + requirements-in-progress. Produce the lens's

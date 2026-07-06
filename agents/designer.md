@@ -15,6 +15,8 @@ with a selection and priced rejections.
 
 ## Corpus routing (cite file + section for every load-bearing claim)
 
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
+
 Reading path per `reference/design/00-index.md`:
 1. `06-quality-attributes-tradeoffs.md` — first: decide which qualities this
    change actually needs (from the recorded requirements/risk signals)

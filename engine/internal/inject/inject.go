@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/contracts"
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/doctor"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/runctl"
 )
 
@@ -78,6 +79,9 @@ func Session(c *runctl.Ctl) (string, error) {
 
 	open, total := taskCounts(env)
 	fmt.Fprintf(&b, "open tasks: %d/%d · loops: %d · forces: %d\n", open, total, r.Loops, r.Forces)
+	if warn := doctor.HookLiveness(c, r); warn != "" {
+		fmt.Fprintf(&b, "⚠ %s\n", warn)
+	}
 	fmt.Fprintf(&b, "resume procedure: /wf:%s   escapes: /wf:park /wf:force\n", skillFor(c, r.Phase))
 	b.WriteString("state lives in .workflow/ — after compaction or resume, this block (not memory) is authoritative\n")
 	return b.String(), nil

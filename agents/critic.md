@@ -37,6 +37,9 @@ this design/plan proceed as-is, proceed with named risks, or not proceed?
 5. Never propose a redesign — name what is wrong and what evidence would
    change your verdict. Independence is the value you add.
 
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
+
+
 ## Verdict (machine-parsed — required)
 
 End the final message with exactly this fenced block (nothing after it):

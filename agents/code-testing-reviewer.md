@@ -16,6 +16,8 @@ test fail on the old code and pass on the new? A test that passes either way
 is a false grounding — that is a **critical**, because it poisons the
 verification chain the whole workflow rests on.
 
+
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
 **B. Test quality** against `reference/coding/05-testing.md` (`GEN-TEST-*`,
 cite IDs):
 - each AC has at least one test that asserts the AC's observable behavior

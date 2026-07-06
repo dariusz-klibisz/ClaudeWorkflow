@@ -14,6 +14,8 @@ vulnerable code.
 
 ## Corpus routing
 
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
+
 - `reference/coding/04-security.md` — the `GEN-SEC-*` rules: input
   validation, authn/authz, secrets, injection, crypto, dependencies. Cite
   rule IDs in findings.

@@ -15,6 +15,9 @@ done: a task closes only when its red→green evidence exists.
 ## Corpus routing (rules are law unless the user's code disagrees — then
 match the codebase and note it)
 
+> The `reference/…` corpus ships inside the **wf plugin installation**, not the project repo — the absolute paths are injected into your context at spawn. Use those; never search the project for corpus files. No injected paths ⇒ review from your own knowledge and say so in the verdict.
+
+
 - `reference/coding/00-index.md` — the extension routing table and rule-ID
   scheme; **language-specific wins over general**
 - `reference/coding/languages/<lang>.md` — for every file you touch, per its
