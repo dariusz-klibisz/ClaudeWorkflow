@@ -118,6 +118,9 @@ func hooksJSON(sp *spec.Spec) []byte {
 			"PostToolUse": []any{
 				group("Bash", exec(10, "capture", "bash")),
 				group("Edit|Write", exec(10, "capture", "edit")),
+				// approval anchoring (04 §8.1): the user's answers become
+				// hook-captured user-answer records that wf approve links
+				group("AskUserQuestion", exec(10, "capture", "question")),
 			},
 		},
 	}

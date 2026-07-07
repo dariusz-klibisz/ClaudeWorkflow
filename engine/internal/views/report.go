@@ -39,6 +39,10 @@ type RunSignals struct {
 	AutoVerdicts int `json:"auto_verdicts"`
 	TestRuns     int `json:"test_runs"`
 	AutoTestRuns int `json:"auto_test_runs"`
+	// approvals: anchored = carries answer_ref to a hook-captured
+	// AskUserQuestion exchange (04 §8.1 — harder to fabricate, still not proof)
+	Approvals         int `json:"approvals"`
+	AnchoredApprovals int `json:"anchored_approvals"`
 
 	// grounding
 	UngroundedTestRuns int      `json:"ungrounded_test_runs"`
@@ -212,6 +216,12 @@ func runSignals(c *runctl.Ctl, runID string, archived bool) (*RunSignals, error)
 			s.AutoVerdicts++
 		}
 	}
+	for _, a := range env.Records("approval") {
+		s.Approvals++
+		if ref, _ := a.Data["answer_ref"].(string); ref != "" {
+			s.AnchoredApprovals++
+		}
+	}
 	for _, av := range env.Records("ac-verdict") {
 		if status, _ := av.Data["status"].(string); status != "pass" {
 			continue
@@ -278,8 +288,8 @@ func RenderRunSignals(s *RunSignals) string {
 	fmt.Fprintf(&b, "[wf report] run %s (%s/%s) — %s\n", s.Run, s.Family, s.Intent, s.Status)
 	fmt.Fprintf(&b, "  loops %d · forces %d · parks %d · waivers %d (phases: %s)\n",
 		s.Loops, s.Forces, s.Parks, s.Waivers, orDash(s.WaivedPhases))
-	fmt.Fprintf(&b, "  verdicts %d (%d auto) · test-runs %d (%d auto, %d ungrounded)\n",
-		s.Verdicts, s.AutoVerdicts, s.TestRuns, s.AutoTestRuns, s.UngroundedTestRuns)
+	fmt.Fprintf(&b, "  verdicts %d (%d auto) · test-runs %d (%d auto, %d ungrounded) · approvals %d (%d answer-anchored)\n",
+		s.Verdicts, s.AutoVerdicts, s.TestRuns, s.AutoTestRuns, s.UngroundedTestRuns, s.Approvals, s.AnchoredApprovals)
 	fmt.Fprintf(&b, "  AC passes %d (ungrounded: %s)\n", s.ACPasses, orDash(s.UngroundedACs))
 	fmt.Fprintf(&b, "  lessons: %d proposed · %d accepted · %d rejected · %d lesson-item waivers\n",
 		s.LessonsProposed, s.LessonsAccepted, s.LessonsRejected, s.LessonItemWaivers)

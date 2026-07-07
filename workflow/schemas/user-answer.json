@@ -1,0 +1,14 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/user-answer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "answer": {},
+    "question": {}
+  },
+  "required": [
+    "question",
+    "answer"
+  ],
+  "title": "wf record: user-answer",
+  "type": "object"
+}

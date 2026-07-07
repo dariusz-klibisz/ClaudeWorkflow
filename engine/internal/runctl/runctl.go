@@ -519,7 +519,11 @@ func (c *Ctl) hasApproval(r *store.Run, gate string) bool {
 }
 
 // Approve records a user approval — always auto:false, always self-attested
-// and reported (honest bounds, 04 §8).
+// and reported (honest bounds, 04 §8). Anchoring (04 §8.1): when a
+// hook-captured user-answer exists after this gate's previous approval, it
+// is linked via answer_ref — still not proof a human typed it, but one
+// layer harder to fabricate. With config `approvals: hardened`, an approval
+// WITHOUT such an answer is refused (opt-in friction, 09 Q3).
 func (c *Ctl) Approve(gate, payload string) (*store.Event, error) {
 	r, err := c.MustRun()
 	if err != nil {
@@ -528,6 +532,26 @@ func (c *Ctl) Approve(gate, payload string) (*store.Event, error) {
 	data := map[string]any{"gate": gate}
 	if payload != "" {
 		data["payload_hash"] = fmt.Sprintf("%x", hash(payload))
+	}
+	if env, err := c.Env(r); err == nil {
+		lastApproval := -1
+		for _, a := range env.Records("approval") {
+			if g, _ := a.Data["gate"].(string); g == gate && a.Order > lastApproval {
+				lastApproval = a.Order
+			}
+		}
+		ref := ""
+		for _, ua := range env.Records("user-answer") {
+			if ua.Order > lastApproval {
+				ref = ua.ID // stream order: newest wins
+			}
+		}
+		switch {
+		case ref != "":
+			data["answer_ref"] = ref
+		case c.Config != nil && c.Config.ConfigFlag("approvals") == "hardened":
+			return nil, fmt.Errorf("approvals are hardened for this project: pose the %s question via AskUserQuestion first (the hook records the answer), then re-run wf approve %s", gate, gate)
+		}
 	}
 	return c.append(r, "approval", false, "user", data)
 }

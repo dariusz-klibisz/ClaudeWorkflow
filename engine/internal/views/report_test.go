@@ -50,6 +50,9 @@ func TestReportRunSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw(t, c, id, "ship", "lesson", false, "user", map[string]any{"updates": lev.ID, "status": "accepted"})
+	// approvals: one bare (self-attested), one answer-anchored (04 §8.1)
+	raw(t, c, id, "frame", "approval", false, "user", map[string]any{"gate": "frame"})
+	raw(t, c, id, "context", "approval", false, "user", map[string]any{"gate": "scope", "answer_ref": "01X"})
 
 	s, err := ReportRun(c, "current")
 	if err != nil {
@@ -75,6 +78,8 @@ func TestReportRunSignals(t *testing.T) {
 	// the update folded: accepted, not proposed
 	check("lessonsProposed", s.LessonsProposed, 0)
 	check("lessonsAccepted", s.LessonsAccepted, 1)
+	check("approvals", s.Approvals, 2)
+	check("anchoredApprovals", s.AnchoredApprovals, 1)
 	if len(s.UngroundedACs) != 1 || s.UngroundedACs[0] != "AC-2" {
 		t.Errorf("ungrounded ACs = %v, want [AC-2]", s.UngroundedACs)
 	}

@@ -26,6 +26,7 @@ Trivial diff with no design decisions? `wf phase waive design --reason "…"`
   author it, then flip the record:
   `wf record artifact updates=<id> status=present`
 - `wf approve design --payload "<selected options + risks + testability>"`
+  — pose the confirmation via AskUserQuestion (the hook anchors the answer)
   — after presenting to the user
 
 Loop re-entries (from Verify) must reference previously rejected option IDs

@@ -894,6 +894,103 @@ func min(a, b int) int {
 }
 
 // CaptureEdit appends the edit→task binding ledger (never blocks).
+// CaptureQuestion turns an AskUserQuestion exchange into a hook-captured
+// user-answer record — the anchoring evidence `wf approve` links via
+// answer_ref (04 §8.1: still not proof a human typed it, noted as such;
+// it is one layer harder to fabricate than a bare wf approve). Defensive
+// by design: the tool's payload shape is not documented upstream, so this
+// extracts what it can and records only when BOTH sides yielded text.
+// Never blocks.
+func CaptureQuestion(c *runctl.Ctl, in *hookio.Input) hookio.Result {
+	r, err := c.Store.LoadRun()
+	if err != nil || r == nil || r.Status != "active" {
+		return hookio.Allow()
+	}
+	question := questionText(in.ToolInput)
+	answer := answerText(in.ToolResponse)
+	if question == "" || answer == "" {
+		return hookio.Allow()
+	}
+	data := map[string]any{"question": clip(question, 300), "answer": clip(answer, 300)}
+	_, _ = c.Record("user-answer", data, true, "hook")
+	return hookio.Allow()
+}
+
+// questionText joins the question strings from AskUserQuestion tool_input
+// ({"questions":[{"question":…},…]} — with a generic-walk fallback).
+func questionText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var in struct {
+		Questions []struct {
+			Question string `json:"question"`
+		} `json:"questions"`
+	}
+	if json.Unmarshal(raw, &in) == nil && len(in.Questions) > 0 {
+		var qs []string
+		for _, q := range in.Questions {
+			if q.Question != "" {
+				qs = append(qs, q.Question)
+			}
+		}
+		if len(qs) > 0 {
+			return strings.Join(qs, " | ")
+		}
+	}
+	return strings.Join(collectStrings(raw, map[string]bool{"question": true}), " | ")
+}
+
+// answerText extracts the chosen answer(s) from tool_response — shape
+// unverified upstream, so: known keys first, then a generic walk.
+func answerText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	got := collectStrings(raw, map[string]bool{"answer": true, "answers": true, "selected": true, "choice": true, "label": true})
+	if len(got) > 0 {
+		return strings.Join(got, " | ")
+	}
+	return ""
+}
+
+// collectStrings walks arbitrary JSON and gathers string values found under
+// the wanted keys (arrays of strings included).
+func collectStrings(raw json.RawMessage, want map[string]bool) []string {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return nil
+	}
+	var out []string
+	var walk func(node any, wanted bool)
+	walk = func(node any, wanted bool) {
+		switch n := node.(type) {
+		case map[string]any:
+			for k, child := range n {
+				walk(child, want[k])
+			}
+		case []any:
+			for _, child := range n {
+				walk(child, wanted)
+			}
+		case string:
+			if wanted && n != "" {
+				out = append(out, n)
+			}
+		}
+	}
+	walk(v, false)
+	sort.Strings(out)
+	return out
+}
+
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
 func CaptureEdit(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	r, err := c.Store.LoadRun()
 	if err != nil || r == nil || r.Status != "active" {

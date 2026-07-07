@@ -201,6 +201,28 @@ func Run(specPath string) int {
 		t.check("S9d satisfied lesson item clears", !hasLesson(findings), fmt.Sprint(findings))
 	}
 
-	fmt.Printf("selftest: %d scenario checks, %d failure(s)\n", 22, len(t.failures))
+	// S10: hardened approvals (04 §8.1, opt-in 09 Q3) — an approval without
+	// a hook-captured AskUserQuestion answer is refused; captured answer →
+	// approval passes carrying the anchor.
+	dir3, err := os.MkdirTemp("", "wf-selftest10-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "selftest:", err)
+		return 1
+	}
+	defer os.RemoveAll(dir3)
+	st3, _ := store.Open(dir3, true)
+	c4 := &runctl.Ctl{Store: st3, Spec: sp, Config: &store.Config{Flags: map[string]any{"approvals": "hardened"}}}
+	_, _ = c4.RunStart("diff", "fix")
+	_, aerr := c4.Approve("frame", "p")
+	t.check("S10a hardened approval refused without an anchored answer", aerr != nil, fmt.Sprint(aerr))
+	_ = gates.CaptureQuestion(c4, input(map[string]any{
+		"hook_event_name": "PostToolUse", "tool_name": "AskUserQuestion",
+		"tool_input":    map[string]any{"questions": []any{map[string]any{"question": "Approve the frame?"}}},
+		"tool_response": map[string]any{"answers": []any{map[string]any{"answer": "yes, approved"}}},
+	}))
+	aev, aerr := c4.Approve("frame", "p")
+	t.check("S10b captured answer anchors the approval", aerr == nil && aev != nil && aev.Data["answer_ref"] != nil, fmt.Sprint(aerr))
+
+	fmt.Printf("selftest: %d scenario checks, %d failure(s)\n", 24, len(t.failures))
 	return len(t.failures)
 }

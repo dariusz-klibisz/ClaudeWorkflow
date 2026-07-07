@@ -171,7 +171,8 @@ records:
   - { kind: test-run, fields: [cmd, exit, "summary?", "ac?", "task?", "category?", grounded, "filtered?"] }
   - { kind: verdict, fields: [agent, status, criticals, majors, "scope?"] }
   - { kind: ac-verdict, fields: [ac, status] } # status: pass|fail|deferred
-  - { kind: approval, fields: [gate, "payload_hash?"] } # gate: frame|scope|design|plan|deferral|lesson|deviation
+  - { kind: approval, fields: [gate, "payload_hash?", "answer_ref?"] } # gate: frame|scope|design|plan|deferral|lesson|deviation
+  - { kind: user-answer, fields: [question, answer] } # hook-captured AskUserQuestion exchange (04 §8.1 anchoring)
   - { kind: artifact, fields: [path, status, "template?", "role?"] } # status: present|stub|missing
   - { kind: deviation, fields: [text, status] } # status: pending|acked
   - { kind: disposition, fields: [ref, text] }

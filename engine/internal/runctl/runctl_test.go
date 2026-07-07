@@ -351,3 +351,59 @@ func TestRunCloseRequiresShipExit(t *testing.T) {
 		t.Fatal("close before ship exit must refuse")
 	}
 }
+
+// Approval anchoring (04 §8.1) + the opt-in hardened dial (09 Q3).
+func TestApproveAnchoring(t *testing.T) {
+	c := newCtl(t)
+	_, _ = c.RunStart("diff", "fix")
+
+	// plain approval: self-attested, no anchor
+	ev, err := c.Approve("frame", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ev.Data["answer_ref"]; ok {
+		t.Fatal("no user-answer captured — no anchor expected")
+	}
+
+	// a hook-captured answer AFTER the last frame approval anchors the next one
+	ua, err := c.Record("user-answer", map[string]any{"question": "approve scope?", "answer": "yes"}, true, "hook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, err = c.Approve("scope", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref, _ := ev.Data["answer_ref"].(string); ref != ua.ID {
+		t.Fatalf("answer_ref = %v, want %s", ev.Data["answer_ref"], ua.ID)
+	}
+
+	// the same answer must NOT anchor a re-approval of a gate it precedes:
+	// scope's last approval is now NEWER than the answer
+	ev, err = c.Approve("scope", "p2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ev.Data["answer_ref"]; ok {
+		t.Fatal("stale answer must not anchor a later re-approval")
+	}
+}
+
+func TestApproveHardenedRefusesUnanchored(t *testing.T) {
+	c := newCtl(t)
+	c.Config.Flags = map[string]any{"approvals": "hardened"}
+	_, _ = c.RunStart("diff", "fix")
+
+	if _, err := c.Approve("frame", "p"); err == nil {
+		t.Fatal("hardened mode must refuse an unanchored approval")
+	}
+	_, _ = c.Record("user-answer", map[string]any{"question": "approve frame?", "answer": "yes"}, true, "hook")
+	ev, err := c.Approve("frame", "p")
+	if err != nil {
+		t.Fatalf("anchored approval must pass under hardened mode: %v", err)
+	}
+	if ref, _ := ev.Data["answer_ref"].(string); ref == "" {
+		t.Fatal("hardened approval must carry the anchor")
+	}
+}

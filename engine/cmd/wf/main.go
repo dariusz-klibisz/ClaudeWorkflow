@@ -349,6 +349,8 @@ func captureCmd(projectDir string, rest []string) int {
 		return res.Emit(os.Stdout, os.Stderr)
 	case "edit":
 		return gates.CaptureEdit(ctl, in).Emit(os.Stdout, os.Stderr)
+	case "question":
+		return gates.CaptureQuestion(ctl, in).Emit(os.Stdout, os.Stderr)
 	}
 	return 0
 }

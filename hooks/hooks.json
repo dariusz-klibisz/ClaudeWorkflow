@@ -29,6 +29,20 @@
           }
         ],
         "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          {
+            "args": [
+              "capture",
+              "question"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "AskUserQuestion"
       }
     ],
     "PreToolUse": [

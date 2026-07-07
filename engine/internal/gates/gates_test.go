@@ -579,6 +579,55 @@ func TestCaptureInterpreterGuard(t *testing.T) {
 	}
 }
 
+// AskUserQuestion capture (04 §8.1): both sides extracted → user-answer
+// record; partial/garbled payloads → silence; never blocks.
+func TestCaptureQuestion(t *testing.T) {
+	c := newCtl(t)
+	run, _ := c.RunStart("diff", "fix")
+
+	post := func(input, response string) string {
+		raw := `{"hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","tool_input":` + input + `,"tool_response":` + response + `}`
+		return raw
+	}
+	// realistic shape: questions array in, answers in the response
+	r := CaptureQuestion(c, hookInput(t, post(
+		`{"questions":[{"question":"Approve the frame?","header":"Frame"}]}`,
+		`{"answers":[{"question":"Approve the frame?","answer":"Yes, approved"}]}`)))
+	if isDeny(r) {
+		t.Fatal("capture must never block")
+	}
+	env, _ := c.Env(run)
+	uas := env.Records("user-answer")
+	if len(uas) != 1 {
+		t.Fatalf("want 1 user-answer, got %d", len(uas))
+	}
+	if q, _ := uas[0].Data["question"].(string); !strings.Contains(q, "Approve the frame?") {
+		t.Fatalf("question: %v", uas[0].Data)
+	}
+	if a, _ := uas[0].Data["answer"].(string); !strings.Contains(a, "Yes, approved") {
+		t.Fatalf("answer: %v", uas[0].Data)
+	}
+	if !uas[0].Auto {
+		t.Fatal("capture must be auto:true")
+	}
+
+	// unknown response shape with a nested label still extracts
+	_ = CaptureQuestion(c, hookInput(t, post(
+		`{"questions":[{"question":"Which option?"}]}`,
+		`{"choices":[{"label":"Option B"}]}`)))
+	// no answer extractable → no record
+	_ = CaptureQuestion(c, hookInput(t, post(
+		`{"questions":[{"question":"Silent?"}]}`,
+		`{"noise":42}`)))
+	// no question extractable → no record
+	_ = CaptureQuestion(c, hookInput(t, post(`{"weird":true}`, `{"answer":"yes"}`)))
+
+	env, _ = c.Env(run)
+	if got := len(env.Records("user-answer")); got != 2 {
+		t.Fatalf("want 2 user-answers total, got %d", got)
+	}
+}
+
 // Config escape hatch: custom wrappers declared in .workflow/config.json.
 func TestCaptureConfigRunners(t *testing.T) {
 	c := newCtl(t)

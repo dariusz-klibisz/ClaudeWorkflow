@@ -33,6 +33,7 @@ Contract first:
   and approved together, `wf contract waive plan.critic --reason "combined
   presentation covered at design"` (the waiver is recorded — E4)
 - `wf approve plan --payload "<task list + verification strategy>"`
+  — pose the confirmation via AskUserQuestion (the hook anchors the answer)
 
 `wf phase exit` when met — Build is auto-advance: from here the engine
 expects execution, not conversation.

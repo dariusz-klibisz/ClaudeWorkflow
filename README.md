@@ -27,6 +27,12 @@ expanding scope — and records every escape it grants.
 - **Audited escapes, not hidden ones.** `/wf:park` (honest stop),
   `/wf:force` (bypass one gate; escalates — the 3rd force auto-parks the
   run). Everything is recorded and reported.
+- **Anchored approvals.** Approvals are self-attested by design (no hook
+  proves a human typed them), but answers given through AskUserQuestion are
+  hook-captured and linked to the approval (`answer_ref`) — harder to
+  fabricate, still not proof, and reported as such. Opt-in strictness:
+  `"flags": {"approvals": "hardened"}` in `.workflow/config.json` refuses
+  un-anchored approvals outright.
 - **Lessons that bite.** At Ship, the run's lessons are proposed and
   user-triaged (`wf lessons accept|reject`); accepted lessons with a
   `check:` become ordinary contract items in `.workflow/contracts.d/` —
