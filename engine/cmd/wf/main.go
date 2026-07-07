@@ -114,6 +114,8 @@ func run(args []string) int {
 		return traceCmd(ctl)
 	case "report":
 		return reportCmd(ctl, rest)
+	case "lessons":
+		return lessonsCmd(ctl, projectDir, rest)
 	case "deps":
 		return depsCmd(ctl, projectDir, rest)
 	case "origin":
@@ -675,6 +677,48 @@ func reportCmd(ctl *runctl.Ctl, rest []string) int {
 	return 0
 }
 
+// lessonsCmd — the enforcement loop for what runs teach (03 §4.7):
+// suggest (engine-proposed from signals), accept/reject (user disposition +
+// approval + regeneration), apply (idempotent regeneration of
+// contracts.d/lessons.yaml + .claude/rules/wf-lessons.md).
+func lessonsCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
+	if len(rest) == 0 {
+		fmt.Fprintln(os.Stderr, "wf lessons suggest|accept <id>|reject <id>|apply")
+		return 3
+	}
+	specPath, err := resolveSpecPath()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wf:", err)
+		return 3
+	}
+	var out string
+	switch rest[0] {
+	case "suggest":
+		out, err = ops.LessonsSuggest(ctl)
+	case "accept", "reject":
+		if len(rest) < 2 {
+			fmt.Fprintf(os.Stderr, "wf lessons %s <lesson-record-id>\n", rest[0])
+			return 3
+		}
+		if rest[0] == "accept" {
+			out, err = ops.LessonsAccept(ctl, projectDir, specPath, rest[1])
+		} else {
+			out, err = ops.LessonsReject(ctl, projectDir, specPath, rest[1])
+		}
+	case "apply":
+		out, err = ops.LessonsApply(ctl, projectDir, specPath)
+	default:
+		fmt.Fprintln(os.Stderr, "wf lessons suggest|accept <id>|reject <id>|apply")
+		return 3
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wf:", err)
+		return 2
+	}
+	fmt.Println(out)
+	return 0
+}
+
 func traceCmd(ctl *runctl.Ctl) int {
 	report, err := views.Trace(ctl)
 	if err != nil {
@@ -781,6 +825,7 @@ records:         wf record <kind> [--json '{…}'] [key=value …]
                  wf risk scan [--text …] [--add signal]…
 grounding:       wf deps check · wf origin discover [--path …] [--text …]
                  wf doc new <type> --slug … · wf trace
+lessons:         wf lessons suggest|accept <id>|reject <id>|apply
 introspection:   wf status · wf report [--json] [--run <id|current>]
                  wf doctor [--bootstrap] · wf selftest · wf version
 hook entries:    wf gate stop|task-create|task-complete|verdict|skill|edit|bash

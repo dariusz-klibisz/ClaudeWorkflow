@@ -18,15 +18,20 @@ Contract first:
   `wf record artifact path=<PR-or-release-ref> role=delivery status=present`;
   intent deploy: `wf doc new delivery-manifest --slug <release>` (target,
   config diff, rollout, smoke, rollback), author + flip to present
-- Lessons: propose what the run taught
-  (`wf record lesson text="…" status=proposed [check="…"]`), the user
-  accepts or rejects each (`wf approve lesson` +
-  `wf record lesson updates=<id> status=accepted|rejected`) — accepted
-  `check:` lessons become enforced contract items next run (M3 wires the
-  contracts.d write)
+- Lessons: `wf lessons suggest` first (the engine proposes from the run's
+  health signals), then add agent-spotted ones
+  (`wf record lesson text="…" status=proposed [check="…"]`). The `check`
+  field is a contract-item fragment (YAML or JSON: phase, predicate, params,
+  remediation — the shipped predicate vocabulary). Ask the user, then
+  disposition each: `wf lessons accept|reject <id>` — one command records
+  the approval, flips the status, and regenerates the delivery channels:
+  accepted `check:` lessons become enforced `lesson.*` contract items in
+  `.workflow/contracts.d/lessons.yaml` (blocking from the NEXT run), prose
+  lessons regenerate `.claude/rules/wf-lessons.md`. Commit both files.
 
 Close-out, in one atomic engine transaction:
 1. `wf phase exit` (ship contract met)
-2. `wf run close` — archives events to `.workflow/runs/<id>/`, compacts the
-   live log (open followups, commit-origins, lessons stay live), clears the
-   snapshot. Ordering is engine-owned — nothing to sequence by hand.
+2. `wf run close` — archives events to `.workflow/runs/<id>/`, freezes the
+   signals snapshot (`signals.json`), compacts the live log (open followups,
+   commit-origins, lessons stay live), clears the snapshot. Ordering is
+   engine-owned — nothing to sequence by hand.

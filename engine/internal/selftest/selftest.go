@@ -10,8 +10,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/contracts"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/gates"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/hookio"
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/ops"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/runctl"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/spec"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/store"
@@ -159,6 +161,46 @@ func Run(specPath string) int {
 	run, _ = c.Store.LoadRun()
 	t.check("S8b 3rd force auto-parks", e3 != nil && run.Status == "parked", fmt.Sprint(e3))
 
-	fmt.Printf("selftest: %d scenario checks, %d failure(s)\n", 18, len(t.failures))
+	// S9: lessons loop — an accepted check-lesson is enforced in the NEXT
+	// run by the ordinary evaluator (03 §4.7: one representation, one
+	// evaluator). Fresh scaffold: the S8 run is parked.
+	dir2, err := os.MkdirTemp("", "wf-selftest9-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "selftest:", err)
+		return 1
+	}
+	defer os.RemoveAll(dir2)
+	st2, _ := store.Open(dir2, true)
+	c2 := &runctl.Ctl{Store: st2, Spec: sp, Config: &store.Config{}}
+	runA, _ := c2.RunStart("diff", "fix")
+	lev, _ := c2.Record("lesson", map[string]any{"text": "Scan risks before framing", "status": "proposed",
+		"check": `{"phase":"frame","predicate":"record-exists","params":{"kind":"risk"},"remediation":"wf risk scan first"}`}, false, "agent")
+	_, lerr := ops.LessonsAccept(c2, dir2, specPath, lev.ID)
+	t.check("S9a check-lesson accepted and applied", lerr == nil, fmt.Sprint(lerr))
+	// close run A the low-level way (phases don't matter for this scenario)
+	_ = st2.Append(&store.Event{Run: runA.ID, Kind: "run", Actor: "engine", Data: map[string]any{"action": "close"}})
+	_ = st2.ArchiveRun(runA.ID)
+	// next run loads the merged spec — the lesson item must block frame
+	sp2, err := spec.Load(specPath, st2.ContractsDir())
+	t.check("S9b merged spec loads with lessons.yaml", err == nil, fmt.Sprint(err))
+	if err == nil {
+		c3 := &runctl.Ctl{Store: st2, Spec: sp2, Config: &store.Config{}}
+		_, _ = c3.RunStart("diff", "fix")
+		findings, _, _ := c3.PhaseExit(false, "")
+		hasLesson := func(fs []contracts.Finding) bool {
+			for _, f := range fs {
+				if strings.HasPrefix(f.ID, "lesson.") {
+					return true
+				}
+			}
+			return false
+		}
+		t.check("S9c lesson item blocks the next run's frame", hasLesson(findings), fmt.Sprint(findings))
+		_, _ = c3.Record("risk", map[string]any{"signals": []any{}, "lenses": []any{}}, false, "agent")
+		findings, _, _ = c3.PhaseExit(false, "")
+		t.check("S9d satisfied lesson item clears", !hasLesson(findings), fmt.Sprint(findings))
+	}
+
+	fmt.Printf("selftest: %d scenario checks, %d failure(s)\n", 22, len(t.failures))
 	return len(t.failures)
 }
