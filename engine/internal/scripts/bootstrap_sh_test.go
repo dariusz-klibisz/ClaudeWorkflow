@@ -24,6 +24,16 @@ func needTools(t *testing.T) {
 	}
 }
 
+// platformName mirrors bootstrap.sh's src selection: Git Bash uname reports
+// MINGW*/MSYS* → os=windows → the `.exe` suffix (the CI-on-Windows fix).
+func platformName() string {
+	name := fmt.Sprintf("wf-%s-%s", runtime.GOOS, runtime.GOARCH)
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return name
+}
+
 // fixture builds a fake plugin root with a MANIFEST pointing at a local
 // file:// "release", plus the real bootstrap.sh.
 func fixture(t *testing.T, binaryContent string, tamper bool) (root, data string) {
@@ -31,7 +41,7 @@ func fixture(t *testing.T, binaryContent string, tamper bool) (root, data string
 	base := t.TempDir()
 	root = filepath.Join(base, "root")
 	data = filepath.Join(base, "data")
-	name := fmt.Sprintf("wf-%s-%s", runtime.GOOS, runtime.GOARCH)
+	name := platformName()
 
 	// the "release" asset
 	rel := filepath.Join(base, "releases", "v9.9.9")
@@ -57,8 +67,10 @@ func fixture(t *testing.T, binaryContent string, tamper bool) (root, data string
 	if err := os.WriteFile(filepath.Join(root, "scripts", "bootstrap.sh"), realScript, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := fmt.Sprintf("version 9.9.9\nbase_url file://%s\n%x  %s\n",
-		filepath.ToSlash(filepath.Join(base, "releases")), sum, name)
+	// three-slash file:/// form: `file://C:/…` would make curl treat the
+	// drive letter as a hostname on Windows
+	manifest := fmt.Sprintf("version 9.9.9\nbase_url file:///%s\n%x  %s\n",
+		strings.TrimPrefix(filepath.ToSlash(filepath.Join(base, "releases")), "/"), sum, name)
 	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +108,7 @@ func TestFetchTierInstallsVerified(t *testing.T) {
 		t.Fatalf("engine not installed: %v %q", err, installed)
 	}
 	// fetched binary persisted into plugin bin/ → bundled tier next time
-	name := fmt.Sprintf("wf-%s-%s", runtime.GOOS, runtime.GOARCH)
+	name := platformName()
 	if _, err := os.Stat(filepath.Join(root, "bin", name)); err != nil {
 		t.Fatalf("fetched binary not persisted to plugin bin/: %v", err)
 	}
@@ -123,7 +135,7 @@ func TestFetchTierRefusesChecksumMismatch(t *testing.T) {
 		t.Fatal("nothing may be installed on checksum mismatch")
 	}
 	// and nothing persisted into plugin bin/ either
-	name := fmt.Sprintf("wf-%s-%s", runtime.GOOS, runtime.GOARCH)
+	name := platformName()
 	if _, err := os.Stat(filepath.Join(root, "bin", name)); !os.IsNotExist(err) {
 		t.Fatal("tampered binary must not be persisted")
 	}
@@ -158,7 +170,7 @@ func TestBundledTierStillPreferred(t *testing.T) {
 	needTools(t)
 	root, data := fixture(t, "FETCHED", false)
 	// a bundled binary present → fetch must not run at all
-	name := fmt.Sprintf("wf-%s-%s", runtime.GOOS, runtime.GOARCH)
+	name := platformName()
 	if err := os.WriteFile(filepath.Join(root, "bin", name), []byte("BUNDLED"), 0o755); err != nil {
 		t.Fatal(err)
 	}
