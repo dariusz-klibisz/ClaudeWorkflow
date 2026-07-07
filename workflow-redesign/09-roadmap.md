@@ -103,9 +103,18 @@ with an obligation checklist diffed against state at each boundary.
    documents/changes task storage, the mirror-sync design may simplify.
 3. **Approval hardening** — is an AskUserQuestion-based approval skill worth
    the friction for recording transcript position alongside `wf approve`?
+   *Resolved (delivered as opt-in):* AskUserQuestion answers are hook-captured
+   as `user-answer` records and linked to approvals via `answer_ref`
+   (zero-friction enrichment, reported in `wf report`); config
+   `approvals: hardened` refuses un-anchored approvals for projects that
+   want the friction. Anchored ≠ proof — honest bounds unchanged (04 §8).
 4. **Multi-worktree/team aggregation** — per-worktree state now; cross-tree
    reporting later (08 §7). Agent-teams integration (TeammateIdle gate) once
    teams stabilize.
+   *First half delivered:* `wf report --worktrees` aggregates signals across
+   the repo's adopted worktrees (git worktree list discovery, lock-free
+   reads, un-adopted trees skipped). TeammateIdle/teams remains deferred —
+   the stabilization condition is still unmet.
 5. **Prompt-hook semantic layer** — which soft conditions earn a Haiku check
    (summary-faithfulness at Stop? finding-severity sanity at SubagentStop?)
    after real-run data; agent hooks stay off until they leave experimental.
@@ -118,6 +127,9 @@ with an obligation checklist diffed against state at each boundary.
    SessionStart bootstrap); only the binary's origin differs.
 8. **Statusline integration** — a `wf statusline` payload (phase, unmet
    count) is cheap and useful; not load-bearing.
+   *Delivered:* `wf statusline` (run · phase n/m · unmet · waiting/parked ·
+   dead-hooks marker), never-loud by contract; /wf:init wires it into
+   `.claude/settings.json` only when no statusLine exists.
 
 ## 5. Deliberate non-goals (v1)
 

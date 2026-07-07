@@ -121,7 +121,7 @@ func run(args []string) int {
 	case "trace":
 		return traceCmd(ctl)
 	case "report":
-		return reportCmd(ctl, rest)
+		return reportCmd(ctl, projectDir, rest)
 	case "lessons":
 		return lessonsCmd(ctl, projectDir, rest)
 	case "deps":
@@ -700,13 +700,31 @@ func bootstrapHealth() int {
 }
 
 // reportCmd — the health-signals view (08 §4): aggregate across archived +
-// active runs by default; --run <id|current> for one run; --json for both.
-func reportCmd(ctl *runctl.Ctl, rest []string) int {
+// active runs by default; --run <id|current> for one run; --worktrees to
+// group across the repo's adopted worktrees (08 §7); --json for all.
+func reportCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
 	fs := flag.NewFlagSet("report", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "machine-readable output")
 	runID := fs.String("run", "", "one run's snapshot: an archive ID or \"current\"")
+	worktrees := fs.Bool("worktrees", false, "aggregate across the repo's adopted worktrees")
 	if err := fs.Parse(rest); err != nil {
 		return 3
+	}
+	if *worktrees {
+		trees, err := views.ReportWorktrees(ctl, projectDir, func(root string) (*runctl.Ctl, error) {
+			return openCtl(root, false)
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "wf:", err)
+			return 2
+		}
+		if *asJSON {
+			raw, _ := json.MarshalIndent(trees, "", "  ")
+			fmt.Println(string(raw))
+		} else {
+			fmt.Print(views.RenderTreeReports(trees))
+		}
+		return 0
 	}
 	if *runID != "" {
 		s, err := views.ReportRun(ctl, *runID)
@@ -885,7 +903,7 @@ records:         wf record <kind> [--json '{…}'] [key=value …]
 grounding:       wf deps check · wf origin discover [--path …] [--text …]
                  wf doc new <type> --slug … · wf trace
 lessons:         wf lessons suggest|accept <id>|reject <id>|apply
-introspection:   wf status · wf report [--json] [--run <id|current>]
+introspection:   wf status · wf report [--json] [--run <id|current>] [--worktrees]
                  wf statusline (statusLine command; reads stdin JSON)
                  wf doctor [--bootstrap] · wf selftest · wf version
 hook entries:    wf gate stop|task-create|task-complete|verdict|skill|edit|bash

@@ -88,7 +88,8 @@ wf statusline                  one-line statusLine payload (run · phase · unme
                                /wf:init wires it into .claude/settings.json
                                unless you already have a statusLine
 wf report [--run <id|current>] health signals: loops, escapes, self-attested
-                               counts, ungrounded ACs, lesson efficacy
+          [--worktrees]        counts, ungrounded ACs, lesson efficacy;
+                               --worktrees groups across the repo's trees
 wf trace                       ship close-out findings
 wf lessons suggest|accept|reject|apply
 wf doctor [--bootstrap]        state health · verifies AND heals the hook engine
