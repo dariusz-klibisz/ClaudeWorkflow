@@ -21,6 +21,12 @@ jobs:
         run: |
           go vet ./...
           go test -race ./...
+      - name: selftest (in-scaffold enforcement scenarios, per OS)
+        working-directory: engine
+        shell: bash
+        run: |
+          go build -o wf$(go env GOEXE) ./cmd/wf
+          WF_SPEC="$GITHUB_WORKSPACE/workflow/workflow.yaml" ./wf$(go env GOEXE) selftest
 
   generated-drift:
     runs-on: ubuntu-latest
@@ -58,5 +64,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: install Claude Code
         run: npm install -g @anthropic-ai/claude-code
-      - name: validate plugin
-        run: claude plugin validate .
+      - name: validate plugin (strict)
+        run: |
+          claude plugin validate --strict . || {
+            echo "::warning::installed CLI rejected --strict; validating non-strict"
+            claude plugin validate .
+          }
