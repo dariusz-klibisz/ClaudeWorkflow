@@ -24,7 +24,10 @@ decides, phase skills instruct, hooks enforce.
      reason); on their go-ahead `wf run resume`, or branch for new work:
      `wf run branch --reason …`.
 2. If `wf status` reports state problems, run `wf doctor` and follow its
-   remediation (a fresh clone re-attaches with `wf run adopt`).
+   remediation (a fresh clone re-attaches with `wf run adopt`). If any hook
+   errored with a missing `.../data/wf-*/bin/wf` (dead hooks — happens when
+   the plugin was installed mid-session), run `wf doctor --bootstrap`: it
+   installs the hook engine on the spot and the gates revive immediately.
 3. Never edit files under `.workflow/state|log|runs` by hand; every fact is
    recorded through `wf` commands. Escapes exist and are audited:
    `/wf:park` (honest stop), `/wf:force` (bypass one gate, escalates).

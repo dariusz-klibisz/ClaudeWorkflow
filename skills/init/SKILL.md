@@ -43,14 +43,24 @@ Bash tool's PATH while the plugin is enabled — call it bare, no env setup.
    <!-- wf:end -->
    ```
 4. Verify: `wf doctor --bootstrap` prints the engine version and contract
-   count; confirm the CLAUDE.md block markers were written verbatim. Commit
+   count, AND checks that the hook engine is installed at the plugin data
+   path — if it reports the engine was missing, it installs it on the spot
+   (exit 2 means hooks are still dead; do not proceed until fixed). Confirm
+   the CLAUDE.md block markers were written verbatim. Commit
    `.workflow/config.json`, `.workflow/.gitignore`, `.claude/settings.json`,
    and `CLAUDE.md`.
-5. Tell the user: permission rules written to settings.json take effect on
-   the **next session** — restart (or check `/permissions`) so `wf` calls run
-   prompt-free. If a `wf` command still prompts mid-session, accepting
-   "don't ask again for `wf record *`" is safe: the engine only writes under
-   `.workflow/`.
+5. Tell the user, explicitly, both restart caveats:
+   - **Hooks**: if the plugin was installed or reloaded in THIS session
+     (`/plugin`, `/reload-plugins`), the SessionStart bootstrap never fired —
+     gates and verdict capture are dead until `wf doctor --bootstrap` heals
+     them or the session is restarted. Any hook error mentioning a missing
+     `.../data/wf-*/bin/wf` is this exact condition: re-run
+     `wf doctor --bootstrap`.
+   - **Permissions**: rules written to settings.json take effect on the
+     **next session** — restart (or check `/permissions`) so `wf` calls run
+     prompt-free. If a `wf` command still prompts mid-session, accepting
+     "don't ask again for `wf record *`" is safe: the engine only writes
+     under `.workflow/`.
 
 Native Windows (no Git Bash) note: until M5, run the engine installer once by
 hand — `powershell -File <plugin-root>/scripts/bootstrap.ps1` — since the

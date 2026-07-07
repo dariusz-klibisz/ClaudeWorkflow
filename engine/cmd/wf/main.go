@@ -77,7 +77,7 @@ func run(args []string) int {
 			return 3
 		}
 		fmt.Println("wf", Version, "— spec:", len(sp.Contracts), "contract items,", len(sp.Roster), "agents")
-		return 0
+		return bootstrapHealth()
 	}
 
 	ctl, err := openCtl(projectDir, cmd == "init")
@@ -597,12 +597,29 @@ func doctorCmd(ctl *runctl.Ctl, rest []string) int {
 	}
 	if *bootstrap {
 		fmt.Println("wf", Version, "— spec:", len(ctl.Spec.Contracts), "contract items,", len(ctl.Spec.Roster), "agents")
-		return 0
+		return bootstrapHealth()
 	}
 	specPath, _ := resolveSpecPath()
 	rep := doctor.Run(ctl, specPath)
 	fmt.Println(rep.String())
 	if !rep.OK {
+		return 2
+	}
+	return 0
+}
+
+// bootstrapHealth checks every discoverable wf plugin install for a dead
+// hook engine and heals it by running that install's bootstrap script — a
+// mid-session /plugin install never fires SessionStart, so without this
+// every gate stays ENOENT-dead until the next session (the power-of-ten
+// incident: a full run shipped with zero hook events). Exit 0 when healthy
+// or healed, 2 when hooks remain dead.
+func bootstrapHealth() int {
+	findings, dead := doctor.HookEngineFindings("", true)
+	for _, f := range findings {
+		fmt.Println("  -", f)
+	}
+	if dead {
 		return 2
 	}
 	return 0

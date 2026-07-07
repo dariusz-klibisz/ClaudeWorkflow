@@ -556,29 +556,69 @@ func Bash(_ *runctl.Ctl, in *hookio.Input) hookio.Result {
 // PostToolUse capture (04 §5)
 // ---------------------------------------------------------------------------
 
-// test runners recognized in the command HEAD only (the G1 fix).
+// test runners recognized in the command HEAD only (the G1 fix). This list
+// is the zero-config fast path — NOT the whole story: runners are also
+// learned from the run's own verification-strategy commands (any language)
+// and from config `runners` (custom wrappers). The power-of-ten incident:
+// `python3 -m unittest` was missing here and every test-run went uncaptured.
 var runnerHeads = []string{
 	"go test", "gotestsum", "pytest", "python -m pytest", "python3 -m pytest",
-	"npm test", "npm run test", "pnpm test", "yarn test", "npx jest", "jest",
-	"npx vitest", "vitest", "cargo test", "dotnet test", "mvn test", "gradle test",
-	"./gradlew test", "make test", "ctest", "rspec", "phpunit", "gitleaks",
+	"python -m unittest", "python3 -m unittest", "py -m unittest",
+	"npm test", "npm run test", "pnpm test", "pnpm run test", "yarn test",
+	"yarn run test", "npx jest", "jest", "npx vitest", "vitest", "mocha",
+	"npx mocha", "npx playwright test", "playwright test", "cypress run",
+	"npx cypress run", "ng test", "deno test", "bun test",
+	"cargo test", "dotnet test", "mvn test", "gradle test", "./gradlew test",
+	"make test", "ctest", "rspec", "bundle exec rspec", "phpunit",
+	"vendor/bin/phpunit", "composer test", "mix test", "sbt test",
+	"stack test", "cabal test", "swift test", "dart test", "flutter test",
+	"tox", "nox", "zig build test", "gitleaks",
+}
+
+// matchHead: rh matches at a token boundary — or a `:` (npm-style script
+// variants: `npm run test:unit`). Bare prefixes are NOT enough ("toxiproxy"
+// must not match "tox").
+func matchHead(head, rh string) bool {
+	return head == rh || strings.HasPrefix(head, rh+" ") || strings.HasPrefix(head, rh+":")
+}
+
+// generic interpreters/launchers whose bare name proves nothing about
+// testing — a strategy of `python3 test_app.py` must learn that exact
+// two-token invocation, never bare `python3` (or every script run would
+// count as red/green evidence).
+var genericInterpreters = map[string]bool{
+	"python": true, "python3": true, "python2": true, "py": true,
+	"node": true, "deno": true, "bun": true, "ruby": true, "perl": true,
+	"php": true, "sh": true, "bash": true, "zsh": true, "dash": true,
+	"pwsh": true, "powershell": true, "java": true, "dotnet": true,
+	"go": true, "cargo": true, "npx": true, "uv": true, "uvx": true,
+	"make": true, "npm": true, "pnpm": true, "yarn": true,
 }
 
 var filterPipe = regexp.MustCompile(`\|\s*(grep|head|tail|awk|sed|rg)\b`)
 
 // CaptureTest turns recognized runner invocations into grounded test-run
 // records. Rules (G1): match the head only, skip wf self-calls, treat
-// filter-pipes and missing exit codes as ungrounded.
+// filter-pipes and missing exit codes as ungrounded. Recognition, in order:
+// static runnerHeads, config `runners`, then runners learned from the run's
+// recorded verification-strategy commands — the last makes capture
+// language-agnostic, since Plan already declared this run's test commands.
 func CaptureTest(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	cmd := strings.TrimSpace(in.ToolInputField("command"))
 	if cmd == "" || strings.HasPrefix(cmd, "wf ") || strings.Contains(cmd, "/wf ") {
 		return hookio.Allow()
 	}
+	r, err := c.Store.LoadRun()
+	if err != nil || r == nil || r.Status != "active" {
+		return hookio.Allow()
+	}
+	env, envErr := c.Env(r)
+
 	head := commandHead(cmd)
-	var category string
+	var category, ac string
 	matched := false
 	for _, rh := range runnerHeads {
-		if strings.HasPrefix(head, rh) {
+		if matchHead(head, rh) {
 			matched = true
 			if strings.HasPrefix(rh, "gitleaks") {
 				category = "secret-scan"
@@ -586,11 +626,18 @@ func CaptureTest(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 			break
 		}
 	}
-	if !matched {
-		return hookio.Allow()
+	if !matched && c.Config != nil {
+		for _, rh := range c.Config.Runners {
+			if rh != "" && matchHead(head, rh) {
+				matched = true
+				break
+			}
+		}
 	}
-	r, err := c.Store.LoadRun()
-	if err != nil || r == nil || r.Status != "active" {
+	if !matched && envErr == nil {
+		matched, ac = strategyMatch(env, head)
+	}
+	if !matched {
 		return hookio.Allow()
 	}
 	exit, hasExit := responseExit(in.ToolResponse)
@@ -604,11 +651,14 @@ func CaptureTest(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	if category != "" {
 		data["category"] = category
 	}
+	if ac != "" {
+		data["ac"] = ac // the exact per-AC verification command was run
+	}
 	// bind to the single in-progress task (and its ACs) when unambiguous
-	if env, err := c.Env(r); err == nil {
+	if envErr == nil {
 		if tid, acs := activeTask(env); tid != "" {
 			data["task"] = tid
-			if len(acs) == 1 {
+			if _, tagged := data["ac"]; !tagged && len(acs) == 1 {
 				data["ac"] = acs[0]
 			}
 		}
@@ -617,6 +667,99 @@ func CaptureTest(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 		return hookio.Allow() // capture must never break the loop
 	}
 	return hookio.Allow()
+}
+
+// strategyMatch recognizes test invocations from the run's own
+// verification-strategy records. Two tiers:
+//  1. the command IS a recorded per-AC verification command (whole-token
+//     prefix either way, ≥2 shared tokens — flag variations tolerated)
+//     → matched, tagged with that AC;
+//  2. the command shares a strategy's learned runner head (same runner,
+//     different selector — where Build's red/green runs live) → matched.
+func strategyMatch(env *contracts.Env, head string) (bool, string) {
+	cmdTok := strings.Fields(head)
+	strategies := env.Records("verification-strategy")
+	for _, s := range strategies {
+		sc, _ := s.Data["command"].(string)
+		if sc == "" {
+			continue
+		}
+		if tokenPrefix(cmdTok, strings.Fields(commandHead(sc))) {
+			acv, _ := s.Data["ac"].(string)
+			return true, acv
+		}
+	}
+	for _, s := range strategies {
+		sc, _ := s.Data["command"].(string)
+		lh := strings.Fields(learnedHead(sc))
+		if len(lh) == 0 || len(cmdTok) < len(lh) {
+			continue
+		}
+		match := true
+		for i := range lh {
+			if cmdTok[i] != lh[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true, ""
+		}
+	}
+	return false, ""
+}
+
+// tokenPrefix: the shorter command is a whole-token prefix of the longer,
+// sharing at least 2 tokens — so `python3 test_app.py` matches strategy
+// `python3 test_app.py -v`, but a bare interpreter never matches anything.
+func tokenPrefix(a, b []string) bool {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	if n < 2 {
+		return false
+	}
+	for i := 0; i < n; i++ {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// learnedHead extracts the runner-invocation head from a verification
+// command: tokens up to the first selector (path / dotted test id / pytest
+// `::`) or flag, keeping interpreter module flags (`python -m unittest`).
+// A single-token head that is a generic interpreter is discarded — tier 1's
+// exact matching still covers `python3 test_app.py`-style strategies.
+func learnedHead(cmd string) string {
+	fields := strings.Fields(commandHead(cmd))
+	var head []string
+	for i, tok := range fields {
+		if strings.ContainsAny(tok, "/\\.") || strings.Contains(tok, "::") {
+			break
+		}
+		if strings.HasPrefix(tok, "-") {
+			if tok == "-m" && i == 1 {
+				head = append(head, tok)
+				continue
+			}
+			break
+		}
+		head = append(head, tok)
+		if len(head) == 4 {
+			break
+		}
+	}
+	if len(head) == 0 || (len(head) == 1 && genericInterpreters[head[0]]) {
+		return ""
+	}
+	// a dangling module flag proves nothing either ("python3 -m")
+	if head[len(head)-1] == "-m" {
+		return ""
+	}
+	return strings.Join(head, " ")
 }
 
 // commandHead strips leading env assignments and returns the command's start.

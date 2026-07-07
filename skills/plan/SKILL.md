@@ -15,7 +15,12 @@ Contract first:
   task to its wf record (never duplicate-record)
 - Per AC: `wf record verification-strategy --json '{"ac":"AC-1","method":"…","command":"…"}'`
   — this becomes the Verify checklist (single-quoted --json avoids
-  permission-prompt friction on embedded commands)
+  permission-prompt friction on embedded commands). The `command` also
+  teaches Bash test capture this run's runner: record the REAL invocation
+  you will run (e.g. `python3 -m unittest test_app.TestApp.test_x -v`), and
+  Build/Verify runs of that runner get auto-captured in any language. Teams
+  with custom wrappers (`./scripts/test.sh`) can add them to
+  `.workflow/config.json` under `"runners": […]`.
 - `wf record scope-boundary --json '{"in_scope":[…],"out_of_scope":[…]}'`
 - Deferred Frame ambiguities: disposition each (the gate lists them) — a
   new ambiguity record with `updates=<id>` and the final disposition, or a

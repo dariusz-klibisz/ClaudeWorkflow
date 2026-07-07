@@ -481,3 +481,121 @@ func TestCaptureMissingExitIsUngrounded(t *testing.T) {
 		t.Error("missing exit code must never ground (exit:null rule)")
 	}
 }
+
+// The multiply-app incident: stdlib `python3 -m unittest` was invisible to
+// capture. Now on the static list — and matchHead must stay token-bounded.
+func TestCaptureStaticRunnerBoundaries(t *testing.T) {
+	c := newCtl(t)
+	run, _ := c.RunStart("diff", "fix")
+	run.Phase = "build"
+	_ = c.Store.SaveRun(run)
+
+	captured := []string{
+		"python3 -m unittest test_app.TestApp.test_valid -v",
+		"python -m unittest discover",
+		"npm run test:unit",
+		"deno test --allow-read",
+		"mix test",
+		"tox -e py311",
+	}
+	for _, cmd := range captured {
+		_ = CaptureTest(c, hookInput(t, postToolUse(cmd, map[string]any{"exit_code": 0.0})))
+	}
+	// token boundary: a runner name as a bare prefix of another program
+	notCaptured := []string{
+		"toxiproxy start",
+		"mochaccino --brew",
+		"gotestsum2000 run", // still starts with the "gotestsum" letters + suffix
+	}
+	for _, cmd := range notCaptured {
+		_ = CaptureTest(c, hookInput(t, postToolUse(cmd, map[string]any{"exit_code": 0.0})))
+	}
+
+	env, _ := c.Env(run)
+	trs := env.Records("test-run")
+	if len(trs) != len(captured) {
+		var got []any
+		for _, tr := range trs {
+			got = append(got, tr.Data["cmd"])
+		}
+		t.Fatalf("want %d captures, got %d: %v", len(captured), len(trs), got)
+	}
+}
+
+// Language-agnostic learning: a runner unknown to the static list is
+// learned from the run's verification-strategy commands — the exact per-AC
+// command tags its AC, same-runner-different-selector still captures.
+func TestCaptureStrategyLearnedRunner(t *testing.T) {
+	c := newCtl(t)
+	run, _ := c.RunStart("diff", "fix")
+	run.Phase = "build"
+	_ = c.Store.SaveRun(run)
+	// Crystal's runner is not in runnerHeads
+	_, _ = c.Record("verification-strategy", map[string]any{"ac": "AC-1", "method": "spec", "command": "crystal spec spec/app_spec.cr"}, false, "agent")
+
+	// tier 1: the recorded command itself (flag variation tolerated) → AC tagged
+	_ = CaptureTest(c, hookInput(t, postToolUse("crystal spec spec/app_spec.cr --verbose", map[string]any{"exit_code": 0.0})))
+	// tier 2: same learned head ("crystal spec"), different selector → captured, no AC
+	_ = CaptureTest(c, hookInput(t, postToolUse("crystal spec spec/other_spec.cr", map[string]any{"exit_code": 1.0})))
+	// different program entirely → not captured
+	_ = CaptureTest(c, hookInput(t, postToolUse("crystal build src/app.cr", map[string]any{"exit_code": 0.0})))
+
+	env, _ := c.Env(run)
+	trs := env.Records("test-run")
+	if len(trs) != 2 {
+		t.Fatalf("want 2 captures, got %d", len(trs))
+	}
+	if trs[0].Data["ac"] != "AC-1" {
+		t.Errorf("exact strategy run must tag its AC: %v", trs[0].Data)
+	}
+	if _, ok := trs[1].Data["ac"]; ok {
+		t.Errorf("learned-head run must not claim an AC: %v", trs[1].Data)
+	}
+}
+
+// The interpreter guard: `python3 <script>` strategies must not generalize
+// to bare `python3` — running the app is not test evidence.
+func TestCaptureInterpreterGuard(t *testing.T) {
+	c := newCtl(t)
+	run, _ := c.RunStart("diff", "fix")
+	run.Phase = "build"
+	_ = c.Store.SaveRun(run)
+	_, _ = c.Record("verification-strategy", map[string]any{"ac": "AC-1", "method": "script", "command": "python3 run_tests.py"}, false, "agent")
+
+	// the exact strategy invocation still captures (tier 1)…
+	_ = CaptureTest(c, hookInput(t, postToolUse("python3 run_tests.py --fast", map[string]any{"exit_code": 0.0})))
+	// …but arbitrary python3 commands must NOT
+	_ = CaptureTest(c, hookInput(t, postToolUse("python3 app.py", map[string]any{"exit_code": 0.0})))
+	_ = CaptureTest(c, hookInput(t, postToolUse("python3 -c 'print(1)'", map[string]any{"exit_code": 0.0})))
+
+	env, _ := c.Env(run)
+	trs := env.Records("test-run")
+	if len(trs) != 1 {
+		var got []any
+		for _, tr := range trs {
+			got = append(got, tr.Data["cmd"])
+		}
+		t.Fatalf("want only the exact strategy run captured, got %d: %v", len(trs), got)
+	}
+}
+
+// Config escape hatch: custom wrappers declared in .workflow/config.json.
+func TestCaptureConfigRunners(t *testing.T) {
+	c := newCtl(t)
+	c.Config.Runners = []string{"./scripts/test.sh"}
+	run, _ := c.RunStart("diff", "fix")
+	run.Phase = "build"
+	_ = c.Store.SaveRun(run)
+
+	_ = CaptureTest(c, hookInput(t, postToolUse("./scripts/test.sh --unit", map[string]any{"exit_code": 0.0})))
+	_ = CaptureTest(c, hookInput(t, postToolUse("./scripts/test.shady", map[string]any{"exit_code": 0.0})))
+
+	env, _ := c.Env(run)
+	trs := env.Records("test-run")
+	if len(trs) != 1 {
+		t.Fatalf("want 1 capture via config runner, got %d", len(trs))
+	}
+	if trs[0].Data["cmd"] != "./scripts/test.sh --unit" {
+		t.Errorf("wrong command captured: %v", trs[0].Data["cmd"])
+	}
+}

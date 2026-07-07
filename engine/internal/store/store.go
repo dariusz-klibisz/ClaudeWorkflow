@@ -67,6 +67,10 @@ type Config struct {
 	UX            bool           `json:"ux"`
 	Thresholds    map[string]any `json:"thresholds,omitempty"`
 	Flags         map[string]any `json:"flags,omitempty"`
+	// Runners: extra test-runner heads for Bash test capture — custom
+	// wrappers (`./scripts/test.sh`) no static list or strategy-learning
+	// heuristic can recognize.
+	Runners []string `json:"runners,omitempty"`
 }
 
 // ConfigFlag exposes config values for `when.config` evaluation.

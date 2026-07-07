@@ -21,8 +21,16 @@ gen:
 check:
 	cd engine && go run ./gen -check
 
-# local dev build (current platform, into bin/ where the bootstrap finds it)
+# local dev build (current platform, into bin/ where the bootstrap finds it).
+# Removes other-platform binaries first: `build` only rebuilds the current
+# platform, so leftovers from an earlier `dist` would carry OLD embedded
+# versions yet get freshly valid checksums (the mixed-vintage SHA256SUMS
+# incident — stale 0.1.0 darwin/windows binaries shipped alongside a HEAD
+# linux build). Cross-platform sets come from `dist` only.
+# Note: VERSION_FULL is stamped at BUILD time — building before committing
+# bakes in the previous sha + .dirty; re-run `make build` after committing.
 build:
+	rm -f bin/wf-* bin/SHA256SUMS
 	cd engine && go build -ldflags '$(LDFLAGS)' -o ../bin/wf-$$(go env GOOS)-$$(go env GOARCH)$$(go env GOEXE) ./cmd/wf
 	printf '%s' "$(VERSION_FULL)" > bin/VERSION
 	cd bin && sha256sum wf-* > SHA256SUMS

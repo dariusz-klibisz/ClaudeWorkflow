@@ -6,12 +6,6 @@ $root = $env:CLAUDE_PLUGIN_ROOT
 $data = $env:CLAUDE_PLUGIN_DATA
 if (-not $root -or -not $data) { exit 0 }
 
-$want = ""
-if (Test-Path "$root\bin\VERSION") { $want = (Get-Content "$root\bin\VERSION" -Raw).Trim() }
-$have = ""
-if (Test-Path "$data\bin\VERSION") { $have = (Get-Content "$data\bin\VERSION" -Raw).Trim() }
-if ($want -and ($want -eq $have) -and (Test-Path "$data\bin\wf.exe")) { exit 0 }
-
 $arch = "amd64"
 if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "arm64" }
 $src = "$root\bin\wf-windows-$arch.exe"
@@ -19,6 +13,18 @@ if (-not (Test-Path $src)) {
   Write-Error "[wf bootstrap] no engine binary for windows/$arch under $root\bin — wf gates will fail open"
   exit 0
 }
+
+# Version stamp: bin/VERSION when it ships; otherwise fall back to the
+# binary's checksum so git installs (which .gitignore the VERSION file)
+# still get no-op re-runs and a written $data\bin\VERSION.
+$want = ""
+if (Test-Path "$root\bin\VERSION") { $want = (Get-Content "$root\bin\VERSION" -Raw).Trim() }
+if (-not $want) {
+  $want = "sha256:" + (Get-FileHash -Algorithm SHA256 -Path $src).Hash.ToLower().Substring(0, 16)
+}
+$have = ""
+if (Test-Path "$data\bin\VERSION") { $have = (Get-Content "$data\bin\VERSION" -Raw).Trim() }
+if ($want -and ($want -eq $have) -and (Test-Path "$data\bin\wf.exe")) { exit 0 }
 
 # checksum verification when the sums file ships
 $sums = "$root\bin\SHA256SUMS"

@@ -15,6 +15,12 @@ Per task, in order:
    (also auto-captured). Genuinely testless task?
    `wf contract waive <tid> --reason "…"` — otherwise TaskCompleted will
    refuse the checkbox.
+   **After your FIRST test run, confirm it was auto-captured** (`wf trace`
+   or `wf status` shows the test-run with auto/hook provenance). If it
+   wasn't: your runner isn't recognized — run it exactly as recorded in the
+   verification strategy, or add the wrapper to config `"runners"`, and
+   record the missed run manually (`wf record test-run …`) so evidence
+   stays honest. Don't discover this at Verify.
 3. Complete the native task (TaskUpdate → completed). The gate verifies the
    red→green pair for this task and marks the wf record done.
 

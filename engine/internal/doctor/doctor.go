@@ -6,7 +6,6 @@ package doctor
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -68,13 +67,12 @@ func Run(c *runctl.Ctl, specPath string) Report {
 			f = append(f, msg)
 		}
 	}
-	// engine reachable at the hook path? (only checkable inside hook-context
-	// env; the Bash-tool PATH copy of wf may be a different install)
-	if data := os.Getenv("CLAUDE_PLUGIN_DATA"); data != "" {
-		if _, err := os.Stat(filepath.Join(data, "bin", "wf")); err != nil {
-			f = append(f, fmt.Sprintf("hook engine missing at %s/bin/wf — the SessionStart bootstrap did not run (check plugin scripts/bootstrap.sh); every gate is dead until it installs", data))
-		}
-	}
+	// engine reachable at the hook path? Discovered from hook-context env
+	// AND installed_plugins.json, so the Bash-tool copy of wf (different
+	// install, no plugin env) can still see a dead hook engine. Report
+	// only — `wf doctor --bootstrap` is the heal path.
+	hookFindings, _ := HookEngineFindings("", false)
+	f = append(f, hookFindings...)
 
 	// idle run (E2)
 	if snap != nil && snap.Started != "" {
@@ -90,10 +88,13 @@ func Run(c *runctl.Ctl, specPath string) Report {
 // hook-captured events despite substantial activity past Frame — the
 // signature of dead hooks. Empty string = healthy or not yet judgeable.
 func HookLiveness(c *runctl.Ctl, snap *store.Run) string {
-	past := false
+	past, pastPlan := false, false
 	for _, ph := range snap.ExitedPh {
 		if ph == "frame" {
 			past = true
+		}
+		if ph == "plan" {
+			pastPlan = true
 		}
 	}
 	if !past {
@@ -106,6 +107,7 @@ func HookLiveness(c *runctl.Ctl, snap *store.Run) string {
 	// Signal 1 (the power5 incident's signature): reviewer verdicts exist but
 	// NONE was auto-captured — the SubagentStop gate is not firing.
 	verdicts, autoVerdicts := 0, 0
+	testRuns, autoTestRuns := 0, 0
 	hookEvents := 0
 	for _, e := range evs {
 		if e.Kind == "verdict" {
@@ -114,16 +116,28 @@ func HookLiveness(c *runctl.Ctl, snap *store.Run) string {
 				autoVerdicts++
 			}
 		}
+		if e.Kind == "test-run" {
+			testRuns++
+			if e.Auto {
+				autoTestRuns++
+			}
+		}
 		if e.Actor == "hook" {
 			hookEvents++
 		}
 	}
 	if verdicts >= 2 && autoVerdicts == 0 {
-		return fmt.Sprintf("run %s has %d reviewer verdicts and NONE auto-captured — the SubagentStop gate appears DEAD (bootstrap/hook wiring). Manual verdicts are honest but unenforced; fix the hooks (wf doctor in a hook-enabled session / reinstall the plugin)", snap.ID, verdicts)
+		return fmt.Sprintf("run %s has %d reviewer verdicts and NONE auto-captured — the SubagentStop gate appears DEAD (bootstrap/hook wiring). Manual verdicts are honest but unenforced; run `wf doctor --bootstrap` (installs the hook engine on the spot)", snap.ID, verdicts)
+	}
+	// Signal 3 (the multiply-app incident's signature): tests are being
+	// recorded by hand past Plan while Bash capture records none — either
+	// the PostToolUse hook is dead, or the test runner isn't recognized.
+	if pastPlan && testRuns >= 3 && autoTestRuns == 0 {
+		return fmt.Sprintf("run %s has %d test-run records and NONE auto-captured — Bash test capture is not firing. Either the hook is dead (`wf doctor --bootstrap`), or the test runner isn't recognized: make the recorded verification-strategy commands match the real invocations, or declare custom runners in .workflow/config.json (\"runners\": [\"./scripts/test.sh\"])", snap.ID, testRuns)
 	}
 	// Signal 2 (broader): a substantial ledger with zero hook-side events.
 	if len(evs) >= 15 && hookEvents == 0 {
-		return fmt.Sprintf("run %s has %d events past Frame but ZERO hook-captured ones — enforcement hooks appear DEAD (bootstrap/permissions). Gates, verdict capture, and test grounding are not firing", snap.ID, len(evs))
+		return fmt.Sprintf("run %s has %d events past Frame but ZERO hook-captured ones — enforcement hooks appear DEAD (bootstrap/permissions). Gates, verdict capture, and test grounding are not firing; run `wf doctor --bootstrap` (installs the hook engine on the spot)", snap.ID, len(evs))
 	}
 	return ""
 }

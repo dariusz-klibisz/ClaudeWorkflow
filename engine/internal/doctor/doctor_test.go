@@ -81,3 +81,48 @@ func TestHookLivenessManualVerdicts(t *testing.T) {
 		t.Fatalf("auto verdict present — expected clear: %s", msg)
 	}
 }
+
+// The multiply-app signature: verdicts auto-captured (masking signals 1/2)
+// but every test-run recorded by hand — Bash capture dead or the runner
+// unrecognized. Signal 3 must fire past Plan.
+func TestHookLivenessManualTestRuns(t *testing.T) {
+	c := newCtl(t)
+	r, _ := c.RunStart("diff", "fix")
+	r.ExitedPh = []string{"frame", "context", "design", "plan"}
+	r.Phase = "build"
+	_ = c.Store.SaveRun(r)
+	// hook activity + auto verdicts keep signals 1 and 2 quiet
+	_, _ = c.Record("verdict", map[string]any{"agent": "critic", "status": "safe", "criticals": 0, "majors": 0}, true, "hook")
+	_, _ = c.Record("verdict", map[string]any{"agent": "adversary", "status": "clean", "criticals": 0, "majors": 0}, true, "hook")
+	// manual test-runs only
+	for i := 0; i < 3; i++ {
+		_, _ = c.Record("test-run", map[string]any{"cmd": "python3 -m unittest", "exit": i % 2, "grounded": false}, false, "agent")
+	}
+	msg := HookLiveness(c, r)
+	if !strings.Contains(msg, "test-run") || !strings.Contains(msg, "NONE auto-captured") {
+		t.Fatalf("all-manual test-runs past Plan must warn: %q", msg)
+	}
+	// one auto capture clears it
+	_, _ = c.Record("test-run", map[string]any{"cmd": "python3 -m unittest", "exit": 0, "grounded": true}, true, "hook")
+	if msg := HookLiveness(c, r); msg != "" {
+		t.Fatalf("auto test-run present — expected clear: %s", msg)
+	}
+}
+
+// Before Plan exit there's nothing to judge — early Frame/Context probes
+// must not trip signal 3.
+func TestHookLivenessTestRunsQuietBeforePlan(t *testing.T) {
+	c := newCtl(t)
+	r, _ := c.RunStart("diff", "fix")
+	r.ExitedPh = []string{"frame"}
+	r.Phase = "context"
+	_ = c.Store.SaveRun(r)
+	_, _ = c.Record("verdict", map[string]any{"agent": "critic", "status": "safe", "criticals": 0, "majors": 0}, true, "hook")
+	_, _ = c.Record("verdict", map[string]any{"agent": "adversary", "status": "clean", "criticals": 0, "majors": 0}, true, "hook")
+	for i := 0; i < 3; i++ {
+		_, _ = c.Record("test-run", map[string]any{"cmd": "pytest", "exit": 0, "grounded": false}, false, "agent")
+	}
+	if msg := HookLiveness(c, r); msg != "" {
+		t.Fatalf("signal 3 must stay quiet before plan exit: %s", msg)
+	}
+}
