@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,6 +68,13 @@ func run(args []string) int {
 		return injectCmd(projectDir, rest)
 	case "capture":
 		return captureCmd(projectDir, rest)
+	}
+
+	// statusline resolves its project from the statusLine stdin payload and
+	// must NEVER be loud (it re-runs constantly) — its own path, no openCtl
+	// error surfacing.
+	if cmd == "statusline" {
+		return statuslineCmd()
 	}
 
 	// doctor --bootstrap verifies the install before any project is adopted
@@ -136,11 +144,16 @@ func resolveProjectDir() string {
 	if d := os.Getenv("CLAUDE_PROJECT_DIR"); d != "" {
 		return d
 	}
-	// walk up from cwd to the nearest .workflow
 	dir, err := os.Getwd()
 	if err != nil {
 		return "."
 	}
+	return walkUpFrom(dir)
+}
+
+// walkUpFrom finds the nearest ancestor (including dir itself) holding a
+// .workflow; falls back to dir.
+func walkUpFrom(dir string) string {
 	for d := dir; ; {
 		if _, err := os.Stat(filepath.Join(d, store.DirName)); err == nil {
 			return d
@@ -633,6 +646,40 @@ func doctorCmd(ctl *runctl.Ctl, rest []string) int {
 	return 0
 }
 
+// statuslineCmd renders the one-line statusLine payload (09 Q8). Reads
+// Claude Code's statusline JSON from stdin (workspace dirs), walks up to
+// the project's .workflow, prints one line. Any failure prints nothing and
+// exits 0 — a statusline must not spam.
+func statuslineCmd() int {
+	var payload struct {
+		CWD       string `json:"cwd"`
+		Workspace struct {
+			CurrentDir string `json:"current_dir"`
+			ProjectDir string `json:"project_dir"`
+		} `json:"workspace"`
+	}
+	raw, _ := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
+	_ = json.Unmarshal(raw, &payload)
+	dir := ""
+	for _, d := range []string{payload.Workspace.ProjectDir, payload.Workspace.CurrentDir, payload.CWD} {
+		if d != "" {
+			dir = walkUpFrom(d)
+			break
+		}
+	}
+	if dir == "" {
+		dir = resolveProjectDir()
+	}
+	ctl, err := openCtl(dir, false)
+	if err != nil {
+		return 0
+	}
+	if line := views.Statusline(ctl); line != "" {
+		fmt.Println(line)
+	}
+	return 0
+}
+
 // bootstrapHealth checks every discoverable wf plugin install for a dead
 // hook engine and heals it by running that install's bootstrap script — a
 // mid-session /plugin install never fires SessionStart, so without this
@@ -837,6 +884,7 @@ grounding:       wf deps check · wf origin discover [--path …] [--text …]
                  wf doc new <type> --slug … · wf trace
 lessons:         wf lessons suggest|accept <id>|reject <id>|apply
 introspection:   wf status · wf report [--json] [--run <id|current>]
+                 wf statusline (statusLine command; reads stdin JSON)
                  wf doctor [--bootstrap] · wf selftest · wf version
 hook entries:    wf gate stop|task-create|task-complete|verdict|skill|edit|bash
                  wf inject session|turn|agent <name> · wf capture bash|edit

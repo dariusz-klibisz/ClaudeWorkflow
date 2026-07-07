@@ -78,6 +78,9 @@ The model drives these; you mostly approve gates. Useful directly:
 
 ```
 wf status                      where the run stands (authoritative, from disk)
+wf statusline                  one-line statusLine payload (run · phase · unmet);
+                               /wf:init wires it into .claude/settings.json
+                               unless you already have a statusLine
 wf report [--run <id|current>] health signals: loops, escapes, self-attested
                                counts, ungrounded ACs, lesson efficacy
 wf trace                       ship close-out findings

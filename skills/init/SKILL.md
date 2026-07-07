@@ -28,6 +28,16 @@ Bash tool's PATH while the plugin is enabled — call it bare, no env setup.
      "permissions": { "allow": ["Bash(wf *)"] }
    }
    ```
+   **Statusline** (only when the file has NO `statusLine` key — never replace
+   the user's own): add one showing run/phase/unmet at a glance. The command
+   must be the absolute path of the hook-installed engine — resolve it first
+   (`ls ~/.claude/plugins/data/ | grep '^wf-'`), then merge:
+   ```json
+   { "statusLine": { "type": "command", "command": "<home>/.claude/plugins/data/<wf-dir>/bin/wf statusline" } }
+   ```
+   It prints nothing until a run exists and stays silent on any error. Skip
+   the entry (with a note to the user) if the data dir doesn't exist yet
+   (plugin installed but never bootstrapped — see step 4).
 3. Append the wf block to `CLAUDE.md` (create the file if absent), delimited
    by `<!-- wf:begin -->` / `<!-- wf:end -->` so the engine can refresh it:
 
