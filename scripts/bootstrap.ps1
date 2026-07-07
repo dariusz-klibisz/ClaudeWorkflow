@@ -9,8 +9,42 @@ if (-not $root -or -not $data) { exit 0 }
 $arch = "amd64"
 if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "arm64" }
 $src = "$root\bin\wf-windows-$arch.exe"
+$name = "wf-windows-$arch.exe"
+
+# Fetch tier (07 §4-B): no bundled binary, but the committed bin/MANIFEST
+# names a released one — download and verify against the COMMITTED checksum.
+$manifest = "$root\bin\MANIFEST"
+if (-not (Test-Path $src) -and (Test-Path $manifest)) {
+  $lines = Get-Content $manifest
+  $mver = ($lines | Where-Object { $_ -match '^version ' } | Select-Object -First 1) -replace '^version ', ''
+  $murl = ($lines | Where-Object { $_ -match '^base_url ' } | Select-Object -First 1) -replace '^base_url ', ''
+  $mline = $lines | Where-Object { $_ -match [regex]::Escape(" $name") + '$' } | Select-Object -First 1
+  $msum = if ($mline) { ($mline -split '\s+')[0].ToLower() } else { "" }
+  if ($mver -and $murl -and $msum) {
+    # exactly this release already installed? — no refetch when bin/ is read-only
+    $short = "sha256:" + $msum.Substring(0, 16)
+    $have = ""
+    if (Test-Path "$data\bin\VERSION") { $have = (Get-Content "$data\bin\VERSION" -Raw).Trim() }
+    if (($short -eq $have) -and (Test-Path "$data\bin\wf.exe")) { exit 0 }
+    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("wf-fetch-" + [System.IO.Path]::GetRandomFileName())
+    try { Invoke-WebRequest -Uri "$murl/v$mver/$name" -OutFile $tmp -UseBasicParsing } catch {}
+    if (Test-Path $tmp) {
+      $got = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash.ToLower()
+      if ($got -eq $msum) {
+        try { Copy-Item $tmp $src -Force; Write-Error "[wf bootstrap] fetched $name v$mver (checksum verified)" }
+        catch { $src = $tmp; $tmp = ""; Write-Error "[wf bootstrap] fetched $name v$mver (checksum verified; plugin bin\ read-only)" }
+      } else {
+        Write-Error "[wf bootstrap] checksum mismatch for fetched $name (expected $msum, got $got) — refusing"
+      }
+      if ($tmp -and (Test-Path $tmp)) { Remove-Item $tmp -Force }
+    } else {
+      Write-Error "[wf bootstrap] could not fetch $murl/v$mver/$name — falling back"
+    }
+  }
+}
+
 if (-not (Test-Path $src)) {
-  Write-Error "[wf bootstrap] no engine binary for windows/$arch under $root\bin — wf gates will fail open"
+  Write-Error "[wf bootstrap] no engine binary for windows/$arch (bundled or fetched) — wf gates will fail open"
   exit 0
 }
 

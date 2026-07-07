@@ -24,6 +24,54 @@ esac
 
 src="$root/bin/wf-$os-$arch"
 [ "$os" = windows ] && src="$src.exe"
+name=$(basename "$src")
+
+# Fetch tier (07 §4-B): no bundled binary, but the committed bin/MANIFEST
+# names a released one — download it and verify against the COMMITTED
+# checksum (the manifest is the trust anchor; release assets are not).
+if [ ! -f "$src" ] && [ -f "$root/bin/MANIFEST" ] && command -v sha256sum >/dev/null 2>&1; then
+  msum=$(grep " $name\$" "$root/bin/MANIFEST" | head -1 | cut -d' ' -f1)
+  mver=$(sed -n 's/^version //p' "$root/bin/MANIFEST" | head -1)
+  murl=$(sed -n 's/^base_url //p' "$root/bin/MANIFEST" | head -1)
+  if [ -n "$msum" ] && [ -n "$mver" ] && [ -n "$murl" ]; then
+    # exactly this release already installed? (matches the sha256 stamp
+    # written at install time) — no refetch when $root/bin is unwritable
+    short="sha256:$(printf '%s' "$msum" | cut -c1-16)"
+    have=""
+    [ -f "$data/bin/VERSION" ] && have=$(cat "$data/bin/VERSION")
+    if [ "$short" = "$have" ] && [ -x "$data/bin/wf" ]; then
+      exit 0
+    fi
+    url="$murl/v$mver/$name"
+    tmp=$(mktemp "${TMPDIR:-/tmp}/wf-fetch.XXXXXX")
+    fetched=""
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL -o "$tmp" "$url" 2>/dev/null && fetched=1 || true
+    elif command -v wget >/dev/null 2>&1; then
+      wget -q -O "$tmp" "$url" 2>/dev/null && fetched=1 || true
+    fi
+    if [ -n "$fetched" ]; then
+      got=$(sha256sum "$tmp" | cut -d' ' -f1)
+      if [ "$got" = "$msum" ]; then
+        chmod +x "$tmp"
+        if cp "$tmp" "$src" 2>/dev/null; then
+          echo "[wf bootstrap] fetched $name v$mver (checksum verified)" >&2
+        else
+          # plugin bin/ unwritable — install straight from the temp copy
+          # (the temp file is left for the OS to reap)
+          src="$tmp"
+          tmp=""
+          echo "[wf bootstrap] fetched $name v$mver (checksum verified; plugin bin/ read-only)" >&2
+        fi
+      else
+        echo "[wf bootstrap] checksum mismatch for fetched $name (expected $msum, got $got) — refusing" >&2
+      fi
+    else
+      echo "[wf bootstrap] could not fetch $url — falling back" >&2
+    fi
+    if [ -n "$tmp" ]; then rm -f "$tmp"; fi
+  fi
+fi
 
 if [ ! -f "$src" ]; then
   # dev checkout fallback: build from source when Go is available. Stamp the
@@ -37,7 +85,7 @@ if [ ! -f "$src" ]; then
     echo "[wf bootstrap] no bundled binary for $os/$arch — building $ver+src from source" >&2
     ( cd "$root/engine" && go build -ldflags "-X main.Version=$ver+src" -o "$src" ./cmd/wf )
   else
-    echo "[wf bootstrap] no engine binary for $os/$arch under $root/bin — wf gates will fail open" >&2
+    echo "[wf bootstrap] no engine binary for $os/$arch (bundled, fetched, or buildable) — wf gates will fail open" >&2
     exit 0
   fi
 fi
