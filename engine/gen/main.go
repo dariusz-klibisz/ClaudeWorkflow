@@ -73,8 +73,12 @@ func hooksJSON(sp *spec.Spec) []byte {
 
 	// Bootstrap ships as a sh script only: hooks cannot be platform-scoped,
 	// and a `shell:"powershell"` entry errors visibly on hosts without
-	// PowerShell. Native-Windows bootstrap is deferred to M5 (run
-	// scripts/bootstrap.ps1 once by hand until then — see skills/init).
+	// PowerShell. Native Windows is covered without hook tricks (M5):
+	// the FIRST install is one manual step (bootstrap.ps1 or `wf doctor
+	// --bootstrap` — see skills/init), and every later update is
+	// engine-mediated — `wf inject session` (entry 2, exec form, runs on
+	// all platforms once a binary exists) detects version skew against the
+	// plugin root and re-runs the bootstrap itself (doctor.SelfUpdate).
 	// Invoked via `sh <script>` so it works even when the cache copy lost
 	// the executable bit (the dead-hooks incident: git had mode 100644).
 	bootstrapSh := map[string]any{

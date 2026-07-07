@@ -12,6 +12,7 @@ package doctor
 // at fire time).
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // hookInstall pairs a plugin install dir (root) with its data dir — the
@@ -117,6 +119,82 @@ func discoverInstalls(home string) []hookInstall {
 		add(hookInstall{root: root, data: filepath.Join(plugins, "data", name+"-"+marketplace)})
 	}
 	return installs
+}
+
+// SelfUpdate keeps the hook engine current on EVERY platform without
+// platform-scoped hook wiring (which Claude Code does not offer): all hooks
+// run ${CLAUDE_PLUGIN_DATA}/bin/wf, so once installed the engine re-runs
+// the bootstrap itself when the plugin root expects a different version —
+// plugin updated mid-flight, or native Windows where the sh SessionStart
+// entry cannot run. Called from `wf inject session` (hook context only; the
+// env guard makes it a no-op everywhere else). Returns a note for the
+// session block, "" when nothing was needed. Rate-limited to one attempt
+// per expected version per hour so a broken bootstrap can't loop.
+func SelfUpdate(engineVersion string) string {
+	root := os.Getenv("CLAUDE_PLUGIN_ROOT")
+	data := os.Getenv("CLAUDE_PLUGIN_DATA")
+	if root == "" || data == "" || engineVersion == "" {
+		return ""
+	}
+	expected := expectedVersion(root)
+	if expected == "" || expected == engineVersion {
+		return ""
+	}
+	stamp := filepath.Join(data, "bin", ".selfupdate")
+	var last struct {
+		Expected string `json:"expected"`
+		TS       int64  `json:"ts"`
+	}
+	if raw, err := os.ReadFile(stamp); err == nil {
+		if json.Unmarshal(raw, &last) == nil && last.Expected == expected && time.Since(time.Unix(last.TS, 0)) < time.Hour {
+			return "" // already attempted recently; doctor --bootstrap is the manual path
+		}
+	}
+	last.Expected, last.TS = expected, time.Now().Unix()
+	if raw, err := json.Marshal(last); err == nil {
+		_ = os.MkdirAll(filepath.Dir(stamp), 0o755)
+		_ = os.WriteFile(stamp, raw, 0o644)
+	}
+
+	before := fileDigest(filepath.Join(data, "bin", "wf"))
+	out, err := runBootstrap(root, data)
+	after := fileDigest(filepath.Join(data, "bin", "wf"))
+	switch {
+	case err == nil && after != "" && after != before:
+		return fmt.Sprintf("engine self-updated (%s → plugin's %s) — hooks run the new engine from the next event on", engineVersion, expected)
+	case err != nil:
+		return fmt.Sprintf("engine version skew (running %s, plugin expects %s) and the bootstrap failed: %v — run `wf doctor --bootstrap`", engineVersion, expected, err)
+	default:
+		return fmt.Sprintf("engine version skew (running %s, plugin expects %s) — bootstrap ran but installed nothing (%s); run `wf doctor --bootstrap`", engineVersion, expected, strings.TrimSpace(out))
+	}
+}
+
+// expectedVersion is what the plugin root wants running: bin/VERSION when
+// it ships (dev/release builds), else the committed MANIFEST's semver.
+func expectedVersion(root string) string {
+	if raw, err := os.ReadFile(filepath.Join(root, "bin", "VERSION")); err == nil {
+		return strings.TrimSpace(string(raw))
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "bin", "MANIFEST"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if v, ok := strings.CutPrefix(line, "version "); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// fileDigest is a change detector, not a security check ("" = unreadable).
+func fileDigest(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", sum[:8])
 }
 
 // runBootstrap executes the plugin's bootstrap script with the plugin env

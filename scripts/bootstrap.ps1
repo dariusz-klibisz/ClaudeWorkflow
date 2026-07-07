@@ -76,6 +76,12 @@ if (Test-Path $sums) {
 }
 
 New-Item -ItemType Directory -Force -Path "$data\bin" | Out-Null
+# A RUNNING wf.exe cannot be overwritten (the engine self-update path
+# replaces the binary that invoked this script) — rename it aside first;
+# the .old copies get reaped on the next run.
+Remove-Item "$data\bin\wf.exe.old", "$data\bin\wf.old" -Force -ErrorAction SilentlyContinue
+if (Test-Path "$data\bin\wf.exe") { Move-Item "$data\bin\wf.exe" "$data\bin\wf.exe.old" -Force }
+if (Test-Path "$data\bin\wf") { Move-Item "$data\bin\wf" "$data\bin\wf.old" -Force }
 Copy-Item $src "$data\bin\wf.exe" -Force
 Copy-Item $src "$data\bin\wf" -Force
 if ($want) { Set-Content -Path "$data\bin\VERSION" -Value $want -NoNewline }

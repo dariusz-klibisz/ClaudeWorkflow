@@ -114,7 +114,8 @@ wf selftest                    22 in-scaffold enforcement scenarios
 | `wf report` shows all verdicts/test-runs self-attested | capture hooks dead, or your test runner isn't recognized | doctor; make verification-strategy commands the real invocations; config `"runners"` |
 | Adoption refuses: legacy scaffold | `.workflow/manifest.json` is from the old generator | remove/rename the old `.workflow/` first (no migration ships) |
 | `wf` prompts for permission mid-session | settings rules apply next session | restart, or accept "don't ask again for `wf record *`" — the engine only writes under `.workflow/` |
-| Native Windows (no sh) | SessionStart bootstrap is sh-only until M5 | run `powershell -File <plugin-root>/scripts/bootstrap.ps1` once |
+| Native Windows (no sh) | SessionStart bootstrap is sh-only | one-time: `powershell -File <plugin-root>/scripts/bootstrap.ps1` (or `wf doctor --bootstrap`); afterwards the engine self-updates on version skew |
+| Session block shows "engine self-updated" | plugin was updated; the engine re-bootstrapped itself | nothing — hooks run the new engine from the next event on |
 
 ## Releasing (maintainers)
 

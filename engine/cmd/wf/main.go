@@ -271,6 +271,13 @@ func injectCmd(projectDir string, rest []string) int {
 	if in == nil {
 		in = &hookio.Input{}
 	}
+	// engine self-update on version skew (M5: the plugin-update / native-
+	// Windows path) — plugin-global, so it runs BEFORE the adoption check
+	// and regardless of project state. No-op outside hook context.
+	selfUpdate := ""
+	if rest[0] == "session" {
+		selfUpdate = doctor.SelfUpdate(Version)
+	}
 	ctl, err := openCtl(projectDir, false)
 	if err != nil {
 		if errors.Is(err, store.ErrNotInitialized) {
@@ -283,6 +290,9 @@ func injectCmd(projectDir string, rest []string) int {
 	switch rest[0] {
 	case "session":
 		payload, err = inject.Session(ctl)
+		if selfUpdate != "" && err == nil {
+			payload += "⚠ " + selfUpdate + "\n"
+		}
 	case "turn":
 		event = "UserPromptSubmit"
 		payload, err = inject.Turn(ctl)

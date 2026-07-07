@@ -121,6 +121,14 @@ fi
 mkdir -p "$data/bin"
 cp "$src" "$data/bin/wf.tmp"
 chmod +x "$data/bin/wf.tmp"
+# Windows cannot overwrite a RUNNING executable (the engine self-update path
+# replaces the very binary that invoked the bootstrap) — but renaming it
+# works; the .old copies get reaped on the next run.
+if [ "$os" = windows ]; then
+  rm -f "$data/bin/wf.old" "$data/bin/wf.exe.old" 2>/dev/null || true
+  [ -f "$data/bin/wf" ] && { mv -f "$data/bin/wf" "$data/bin/wf.old" 2>/dev/null || true; }
+  [ -f "$data/bin/wf.exe" ] && { mv -f "$data/bin/wf.exe" "$data/bin/wf.exe.old" 2>/dev/null || true; }
+fi
 mv "$data/bin/wf.tmp" "$data/bin/wf"
 if [ "$os" = windows ]; then cp "$data/bin/wf" "$data/bin/wf.exe"; fi
 if [ -n "$want" ]; then printf '%s' "$want" > "$data/bin/VERSION"; fi

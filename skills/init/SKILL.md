@@ -62,6 +62,10 @@ Bash tool's PATH while the plugin is enabled — call it bare, no env setup.
      "don't ask again for `wf record *`" is safe: the engine only writes
      under `.workflow/`.
 
-Native Windows (no Git Bash) note: until M5, run the engine installer once by
-hand — `powershell -File <plugin-root>/scripts/bootstrap.ps1` — since the
-SessionStart bootstrap ships as a sh script only.
+Native Windows (no Git Bash) note: the SessionStart bootstrap ships as a sh
+script, so the FIRST install needs one manual step — either
+`powershell -File <plugin-root>/scripts/bootstrap.ps1` or
+`wf doctor --bootstrap` from any working wf. After that, updates are
+automatic on every platform: the installed engine detects version skew at
+SessionStart (`wf inject session`) and re-runs the bootstrap itself
+(sh or PowerShell, whichever exists).

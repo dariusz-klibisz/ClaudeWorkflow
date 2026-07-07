@@ -91,6 +91,90 @@ func TestHookEngineHealFailsWithoutScript(t *testing.T) {
 	}
 }
 
+// selfUpdateFixture: a plugin root expecting version 9.9.9 with a stub
+// bootstrap that "installs" a new engine, and a data dir running "1.0.0".
+func selfUpdateFixture(t *testing.T, withVersionFile bool) (root, data string) {
+	t.Helper()
+	base := t.TempDir()
+	root = filepath.Join(base, "root")
+	data = filepath.Join(base, "data")
+	for _, d := range []string{filepath.Join(root, "scripts"), filepath.Join(root, "bin"), filepath.Join(data, "bin")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script := "#!/bin/sh\nprintf NEW-ENGINE > \"$CLAUDE_PLUGIN_DATA/bin/wf\"\nchmod +x \"$CLAUDE_PLUGIN_DATA/bin/wf\"\n"
+	if err := os.WriteFile(filepath.Join(root, "scripts", "bootstrap.sh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if withVersionFile {
+		if err := os.WriteFile(filepath.Join(root, "bin", "VERSION"), []byte("9.9.9"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		manifest := "version 9.9.9\nbase_url file:///nowhere\n"
+		if err := os.WriteFile(filepath.Join(root, "bin", "MANIFEST"), []byte(manifest), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(data, "bin", "wf"), []byte("OLD-ENGINE"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_PLUGIN_ROOT", root)
+	t.Setenv("CLAUDE_PLUGIN_DATA", data)
+	return root, data
+}
+
+// The M5 self-update path: version skew in hook context re-runs the
+// bootstrap and reports it; the rate limit stops retry loops.
+func TestSelfUpdateOnSkew(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh on PATH")
+	}
+	_, data := selfUpdateFixture(t, true)
+
+	note := SelfUpdate("1.0.0")
+	if !strings.Contains(note, "self-updated") {
+		t.Fatalf("skew must trigger an update: %q", note)
+	}
+	installed, _ := os.ReadFile(filepath.Join(data, "bin", "wf"))
+	if string(installed) != "NEW-ENGINE" {
+		t.Fatalf("engine not replaced: %q", installed)
+	}
+	// rate limit: immediate second attempt for the same expected version is silent
+	if note := SelfUpdate("1.0.0"); note != "" {
+		t.Fatalf("rate limit must silence the retry: %q", note)
+	}
+}
+
+func TestSelfUpdateNoSkewNoAction(t *testing.T) {
+	_, data := selfUpdateFixture(t, true)
+	if note := SelfUpdate("9.9.9"); note != "" {
+		t.Fatalf("matching version must be a no-op: %q", note)
+	}
+	installed, _ := os.ReadFile(filepath.Join(data, "bin", "wf"))
+	if string(installed) != "OLD-ENGINE" {
+		t.Fatal("no-op must not touch the engine")
+	}
+}
+
+func TestSelfUpdateOutsideHookContext(t *testing.T) {
+	t.Setenv("CLAUDE_PLUGIN_ROOT", "")
+	t.Setenv("CLAUDE_PLUGIN_DATA", "")
+	if note := SelfUpdate("1.0.0"); note != "" {
+		t.Fatalf("no hook env must mean no action: %q", note)
+	}
+}
+
+// Fetch-tier installs carry no bin/VERSION in the root — the committed
+// MANIFEST's semver is the expected version then.
+func TestExpectedVersionFromManifest(t *testing.T) {
+	root, _ := selfUpdateFixture(t, false)
+	if got := expectedVersion(root); got != "9.9.9" {
+		t.Fatalf("expectedVersion = %q, want 9.9.9", got)
+	}
+}
+
 // A healthy install (engine present) yields no findings.
 func TestHookEngineHealthy(t *testing.T) {
 	home, dataDir := fakeHome(t, false)
