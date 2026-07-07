@@ -126,6 +126,7 @@ var docTypes = map[string]docSpec{
 	"threat-model":      {dest: "docs/design/threat-model-<slug>.md"},
 	"ux":                {dest: "docs/design/ux-<slug>.md"},
 	"review":            {dest: "docs/reviews/<slug>.md"},
+	"incident":          {dest: "docs/incidents/<slug>.md"},
 	"release-notes":     {dest: "docs/releases/<slug>.md"},
 	"delivery-manifest": {dest: "docs/releases/delivery-manifest-<slug>.md", role: "delivery-manifest"},
 }

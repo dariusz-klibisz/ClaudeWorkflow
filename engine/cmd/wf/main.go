@@ -112,6 +112,8 @@ func run(args []string) int {
 		return doctorCmd(ctl, rest)
 	case "trace":
 		return traceCmd(ctl)
+	case "report":
+		return reportCmd(ctl, rest)
 	case "deps":
 		return depsCmd(ctl, projectDir, rest)
 	case "origin":
@@ -385,9 +387,20 @@ func runCmd(ctl *runctl.Ctl, rest []string) int {
 		}
 		fmt.Printf("resumed run %s — phase: %s\n", r.ID, r.Phase)
 	case "close":
+		r, err := ctl.MustRun()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "wf:", err)
+			return 2
+		}
 		if err := ctl.RunClose(); err != nil {
 			fmt.Fprintln(os.Stderr, "wf:", err)
 			return 2
+		}
+		// freeze the signals snapshot into the archive (03 §4.7)
+		if path, err := views.WriteRunSignals(ctl, r.ID); err != nil {
+			fmt.Fprintln(os.Stderr, "wf: signals snapshot failed (run is closed):", err)
+		} else {
+			fmt.Println("signals snapshot:", path)
 		}
 		fmt.Println("run closed and archived under .workflow/runs/")
 	default:
@@ -625,6 +638,43 @@ func bootstrapHealth() int {
 	return 0
 }
 
+// reportCmd — the health-signals view (08 §4): aggregate across archived +
+// active runs by default; --run <id|current> for one run; --json for both.
+func reportCmd(ctl *runctl.Ctl, rest []string) int {
+	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "machine-readable output")
+	runID := fs.String("run", "", "one run's snapshot: an archive ID or \"current\"")
+	if err := fs.Parse(rest); err != nil {
+		return 3
+	}
+	if *runID != "" {
+		s, err := views.ReportRun(ctl, *runID)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "wf:", err)
+			return 2
+		}
+		if *asJSON {
+			raw, _ := json.MarshalIndent(s, "", "  ")
+			fmt.Println(string(raw))
+		} else {
+			fmt.Print(views.RenderRunSignals(s))
+		}
+		return 0
+	}
+	sigs, err := views.Report(ctl)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wf:", err)
+		return 2
+	}
+	if *asJSON {
+		raw, _ := json.MarshalIndent(sigs, "", "  ")
+		fmt.Println(string(raw))
+	} else {
+		fmt.Print(views.RenderReport(sigs))
+	}
+	return 0
+}
+
 func traceCmd(ctl *runctl.Ctl) int {
 	report, err := views.Trace(ctl)
 	if err != nil {
@@ -674,7 +724,7 @@ func originCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
 
 func docCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
 	if len(rest) < 2 || rest[0] != "new" {
-		fmt.Fprintln(os.Stderr, "wf doc new adr|design|threat-model|ux|review|release-notes|delivery-manifest --slug …")
+		fmt.Fprintln(os.Stderr, "wf doc new adr|design|threat-model|ux|review|incident|release-notes|delivery-manifest --slug …")
 		return 3
 	}
 	fs := flag.NewFlagSet("doc", flag.ContinueOnError)
@@ -731,7 +781,8 @@ records:         wf record <kind> [--json '{…}'] [key=value …]
                  wf risk scan [--text …] [--add signal]…
 grounding:       wf deps check · wf origin discover [--path …] [--text …]
                  wf doc new <type> --slug … · wf trace
-introspection:   wf status · wf doctor [--bootstrap] · wf selftest · wf version
+introspection:   wf status · wf report [--json] [--run <id|current>]
+                 wf doctor [--bootstrap] · wf selftest · wf version
 hook entries:    wf gate stop|task-create|task-complete|verdict|skill|edit|bash
                  wf inject session|turn|agent <name> · wf capture bash|edit
 `)

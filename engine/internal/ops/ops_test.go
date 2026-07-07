@@ -153,4 +153,11 @@ func TestDocNew(t *testing.T) {
 	if !found {
 		t.Fatal("delivery-manifest role missing")
 	}
+	// incident lands under docs/incidents/ (06 §6's 8th type)
+	if _, err := DocNew(c, pluginRoot, dir, "incident", "Dead Hooks Session"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "docs", "incidents", "dead-hooks-session.md")); err != nil {
+		t.Fatal("incident doc not created under docs/incidents/")
+	}
 }

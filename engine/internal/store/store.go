@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -255,8 +256,51 @@ func (s *Store) RunEvents(runID string) ([]Event, error) {
 	return s.Events(func(e Event) bool { return e.Run == runID })
 }
 
+// ListArchivedRuns returns the IDs of closed runs under runs/, sorted
+// (run IDs are date-prefixed, so this is chronological).
+func (s *Store) ListArchivedRuns() ([]string, error) {
+	entries, err := os.ReadDir(s.RunsDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var ids []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(s.RunsDir(), e.Name(), "events.jsonl")); err == nil {
+			ids = append(ids, e.Name())
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// ArchivedRunEvents reads a closed run's archived event slice
+// (runs/<id>/events.jsonl). Log replay is allowed here — this feeds
+// doctor/report only, never gates (07 §5).
+func (s *Store) ArchivedRunEvents(runID string) ([]Event, error) {
+	path := filepath.Join(s.RunsDir(), runID, "events.jsonl")
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("no archived run %s: %w", runID, err)
+	}
+	var out []Event
+	err := s.scanFile(path, func(ev Event) bool {
+		out = append(out, ev)
+		return true
+	})
+	return out, err
+}
+
 func (s *Store) scan(fn func(Event) bool) error {
-	f, err := os.Open(s.EventsPath())
+	return s.scanFile(s.EventsPath(), fn)
+}
+
+func (s *Store) scanFile(path string, fn func(Event) bool) error {
+	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
