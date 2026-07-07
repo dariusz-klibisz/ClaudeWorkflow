@@ -116,6 +116,25 @@ wf selftest                    22 in-scaffold enforcement scenarios
 | `wf` prompts for permission mid-session | settings rules apply next session | restart, or accept "don't ask again for `wf record *`" — the engine only writes under `.workflow/` |
 | Native Windows (no sh) | SessionStart bootstrap is sh-only until M5 | run `powershell -File <plugin-root>/scripts/bootstrap.ps1` once |
 
+## Releasing (maintainers)
+
+Binaries never live in git — they are attached to GitHub Releases, and the
+bootstrap **fetches the platform binary on first use, verified against the
+committed `bin/MANIFEST`** (the trust anchor; 07 §4-B). Release builds are
+reproducible (`-trimpath`, plain semver stamp), so CI can verify that a
+rebuild at the tag matches the committed checksums exactly:
+
+```sh
+# 1. bump "version" in .claude-plugin/plugin.json
+make dist RELEASE=1 manifest   # 2. build all 6 platforms + write bin/MANIFEST
+git commit -am "release: vX.Y.Z"
+git tag vX.Y.Z && git push --follow-tags
+# 3. release.yml: tests + selftest + rebuild + verify-manifest + gh release
+```
+
+If `verify-manifest` fails in CI, the build is not reproducing (toolchain
+skew or a stale manifest) — nothing is published.
+
 ## Notes for reviewers of this repo
 
 - Engine source: `engine/` (Go, zero runtime deps; `make test` runs vet +

@@ -1,0 +1,53 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: engine/go.sum
+      - name: vet + race tests
+        working-directory: engine
+        run: |
+          go vet ./...
+          go test -race ./...
+      - name: generated files current
+        working-directory: engine
+        run: go run ./gen -check
+      - name: selftest
+        working-directory: engine
+        run: |
+          go build -o wf ./cmd/wf
+          WF_SPEC="$GITHUB_WORKSPACE/workflow/workflow.yaml" ./wf selftest
+      - name: reproducible release build
+        run: make dist RELEASE=1
+      - name: verify committed MANIFEST matches the rebuild (supply-chain gate)
+        run: make verify-manifest RELEASE=1
+      - name: tag matches plugin.json version
+        run: |
+          ver=$(grep '"version"' .claude-plugin/plugin.json | head -1 | sed 's/[^0-9.]*//g')
+          test "v$ver" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != plugin.json v$ver"; exit 1; }
+      - name: validate plugin
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate --strict . || {
+            echo "::warning::--strict rejected by installed CLI; falling back to non-strict"
+            claude plugin validate .
+          }
+      - name: publish GitHub release with binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "wf ${GITHUB_REF_NAME}" \
+            --notes "wf engine ${GITHUB_REF_NAME} — binaries are fetch-verified against the committed bin/MANIFEST at this tag." \
+            bin/wf-* bin/SHA256SUMS

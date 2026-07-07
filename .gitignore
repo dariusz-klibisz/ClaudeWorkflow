@@ -1,8 +1,11 @@
-# engine binaries are release artifacts (built by CI on release tags);
-# dev builds stay local — the bootstrap builds from source under --plugin-dir
+# engine binaries are release artifacts (attached to GitHub Releases by
+# release.yml on tags); dev builds stay local — the bootstrap fetches the
+# platform binary checksum-verified against the COMMITTED bin/MANIFEST
+# (07 §4-B), or builds from source under --plugin-dir.
 bin/wf-*
 bin/VERSION
 bin/SHA256SUMS
+# bin/MANIFEST is tracked: it is the trust anchor for the fetch tier.
 
 # go
 engine/coverage.out
