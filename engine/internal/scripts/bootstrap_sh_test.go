@@ -34,6 +34,14 @@ func platformName() string {
 	return name
 }
 
+// fakeEngine returns fake binary content that Git Bash's `test -x`
+// recognizes as executable: MSYS emulates the exec bit by CONTENT sniffing
+// (shebang or MZ header) — a bare string fails -x on Windows even after
+// chmod +x, which broke the script's second-run no-op check in CI. Real
+// engines are PE/ELF images, so the script's -x guard is sound; only the
+// fixture needs to look the part.
+func fakeEngine(tag string) string { return "#!/bin/sh\n# " + tag + "\n" }
+
 // fixture builds a fake plugin root with a MANIFEST pointing at a local
 // file:// "release", plus the real bootstrap.sh.
 func fixture(t *testing.T, binaryContent string, tamper bool) (root, data string) {
@@ -97,14 +105,14 @@ func runBootstrap(t *testing.T, root, data string) string {
 
 func TestFetchTierInstallsVerified(t *testing.T) {
 	needTools(t)
-	root, data := fixture(t, "FAKE-ENGINE-v9.9.9", false)
+	root, data := fixture(t, fakeEngine("v9.9.9"), false)
 
 	out := runBootstrap(t, root, data)
 	if !strings.Contains(out, "fetched") || !strings.Contains(out, "checksum verified") {
 		t.Fatalf("fetch tier did not run:\n%s", out)
 	}
 	installed, err := os.ReadFile(filepath.Join(data, "bin", "wf"))
-	if err != nil || string(installed) != "FAKE-ENGINE-v9.9.9" {
+	if err != nil || string(installed) != fakeEngine("v9.9.9") {
 		t.Fatalf("engine not installed: %v %q", err, installed)
 	}
 	// fetched binary persisted into plugin bin/ → bundled tier next time
@@ -125,7 +133,7 @@ func TestFetchTierInstallsVerified(t *testing.T) {
 
 func TestFetchTierRefusesChecksumMismatch(t *testing.T) {
 	needTools(t)
-	root, data := fixture(t, "TAMPERED-ENGINE", true)
+	root, data := fixture(t, fakeEngine("tampered"), true)
 
 	out := runBootstrap(t, root, data)
 	if !strings.Contains(out, "checksum mismatch") || !strings.Contains(out, "refusing") {
@@ -143,7 +151,7 @@ func TestFetchTierRefusesChecksumMismatch(t *testing.T) {
 
 func TestFetchTierNoManifestEntryFallsThrough(t *testing.T) {
 	needTools(t)
-	root, data := fixture(t, "x", false)
+	root, data := fixture(t, fakeEngine("x"), false)
 	// strip the platform line — only version/base_url remain
 	mp := filepath.Join(root, "bin", "MANIFEST")
 	raw, _ := os.ReadFile(mp)
@@ -168,10 +176,10 @@ func TestFetchTierNoManifestEntryFallsThrough(t *testing.T) {
 
 func TestBundledTierStillPreferred(t *testing.T) {
 	needTools(t)
-	root, data := fixture(t, "FETCHED", false)
+	root, data := fixture(t, fakeEngine("fetched"), false)
 	// a bundled binary present → fetch must not run at all
 	name := platformName()
-	if err := os.WriteFile(filepath.Join(root, "bin", name), []byte("BUNDLED"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "bin", name), []byte(fakeEngine("bundled")), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	out := runBootstrap(t, root, data)
@@ -179,7 +187,7 @@ func TestBundledTierStillPreferred(t *testing.T) {
 		t.Fatalf("bundled binary present — fetch must not run:\n%s", out)
 	}
 	installed, _ := os.ReadFile(filepath.Join(data, "bin", "wf"))
-	if string(installed) != "BUNDLED" {
+	if string(installed) != fakeEngine("bundled") {
 		t.Fatalf("bundled binary must win: %q", installed)
 	}
 }

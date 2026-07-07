@@ -8,11 +8,18 @@ description: wf phase 4 (Plan) — decompose into verifiable tasks with a per-AC
 Contract first:
 
 - `wf record task tid=T-1 subject="…" status=open --json '{"dod":["…"],"ac_links":["AC-1"]}'`
-  — atomic tasks, each with a definition-of-done and AC links; for the diff
-  family the FIRST task per AC is its failing test. Mirror each into the
-  native task list (TaskCreate) **with the tid as subject prefix** —
-  `"T-1: <same subject>"` — that prefix is how the gate links the native
-  task to its wf record (never duplicate-record)
+  — atomic tasks, each with a definition-of-done and AC links. For the diff
+  family, evidence is test-first either way; pick the decomposition that
+  fits the work:
+  - **substantial ACs**: a failing-test task then an implementation task
+    per AC (classic pairs);
+  - **small ACs**: ONE task per AC (or one test task + one impl task for
+    the whole feature) carrying its own red→green runs — pairs collapse
+    into empty implement-tasks and waiver ceremony on small features
+    (accepted lesson from live runs).
+  Mirror each into the native task list (TaskCreate) **with the tid as
+  subject prefix** — `"T-1: <same subject>"` — that prefix is how the gate
+  links the native task to its wf record (never duplicate-record)
 - Per AC: `wf record verification-strategy --json '{"ac":"AC-1","method":"…","command":"…"}'`
   — this becomes the Verify checklist (single-quoted --json avoids
   permission-prompt friction on embedded commands). The `command` also

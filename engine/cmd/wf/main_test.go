@@ -86,3 +86,25 @@ func TestLegacyScaffoldHandling(t *testing.T) {
 		t.Errorf("gates in a legacy repo must stay silent: exit=%d out=%q", code, out)
 	}
 }
+
+// `--key value` is tolerated as an alias for key=value — the flag syntax
+// models reached for in three consecutive live runs.
+func TestRecordFlagSyntaxTolerance(t *testing.T) {
+	dir := t.TempDir()
+	if code, out := runCLI(t, dir, "", "init"); code != 0 {
+		t.Fatalf("init: %d %s", code, out)
+	}
+	if code, out := runCLI(t, dir, "", "run", "start", "--family", "diff", "--intent", "fix"); code != 0 {
+		t.Fatalf("run start: %d %s", code, out)
+	}
+	// mixed syntaxes in one invocation
+	code, out := runCLI(t, dir, "", "record", "assumption", "--text", "flags work", "risk=low")
+	if code != 0 || !strings.Contains(out, "recorded assumption") {
+		t.Fatalf("--key value must be accepted: %d %s", code, out)
+	}
+	// bare non-flag garbage is still rejected
+	code, _ = runCLI(t, dir, "", "record", "assumption", "textwithoutequals")
+	if code == 0 {
+		t.Fatal("bare non key=value token must still be rejected")
+	}
+}

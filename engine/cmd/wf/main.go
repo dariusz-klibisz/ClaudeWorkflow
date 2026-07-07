@@ -509,8 +509,15 @@ func recordCmd(ctl *runctl.Ctl, rest []string) int {
 		}
 		k, v, found := strings.Cut(a, "=")
 		if !found {
-			fmt.Fprintf(os.Stderr, "wf: expected key=value, got %q\n", a)
-			return 2
+			// tolerate `--key value` — the flag syntax models reach for on
+			// every run despite the skills teaching key=value
+			if strings.HasPrefix(a, "--") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				k, v = a, args[i+1]
+				i++
+			} else {
+				fmt.Fprintf(os.Stderr, "wf: expected key=value (or --key value), got %q\n", a)
+				return 2
+			}
 		}
 		k = strings.TrimPrefix(k, "--")
 		var parsed any
