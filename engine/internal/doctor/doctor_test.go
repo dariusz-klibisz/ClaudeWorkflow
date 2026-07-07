@@ -109,6 +109,24 @@ func TestHookLivenessManualTestRuns(t *testing.T) {
 	}
 }
 
+// Artifact runs verify documents with manual checks by design — signal 3
+// must stay quiet there (the arch-design run's false positive).
+func TestHookLivenessTestRunsQuietForArtifactFamily(t *testing.T) {
+	c := newCtl(t)
+	r, _ := c.RunStart("artifact", "arch-design")
+	r.ExitedPh = []string{"frame", "context", "design", "plan"}
+	r.Phase = "build"
+	_ = c.Store.SaveRun(r)
+	_, _ = c.Record("verdict", map[string]any{"agent": "critic", "status": "safe", "criticals": 0, "majors": 0}, true, "hook")
+	_, _ = c.Record("verdict", map[string]any{"agent": "adversary", "status": "clean", "criticals": 0, "majors": 0}, true, "hook")
+	for i := 0; i < 4; i++ {
+		_, _ = c.Record("test-run", map[string]any{"cmd": "grep -q x docs/design.md", "exit": 0, "grounded": true}, false, "agent")
+	}
+	if msg := HookLiveness(c, r); msg != "" {
+		t.Fatalf("signal 3 must be diff-only: %s", msg)
+	}
+}
+
 // Before Plan exit there's nothing to judge — early Frame/Context probes
 // must not trip signal 3.
 func TestHookLivenessTestRunsQuietBeforePlan(t *testing.T) {

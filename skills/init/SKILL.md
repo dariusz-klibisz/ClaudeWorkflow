@@ -16,7 +16,10 @@ Bash tool's PATH while the plugin is enabled — call it bare, no env setup.
 1. `wf init` — creates `.workflow/` (config.json, log/, contracts.d/,
    .gitignore) and records the plugin version.
 2. **Merge** (never overwrite) `.claude/settings.json` so collaborators get
-   the plugin on folder trust, and `wf` calls need no permission prompts:
+   the plugin on folder trust, and `wf` calls need no permission prompts.
+   The auto-mode classifier may block this write as "Self-Modification"
+   (the `Bash(wf *)` allow-rule is a wildcard permission) — that's expected:
+   ask the user to confirm via AskUserQuestion FIRST, then write.
    ```json
    {
      "extraKnownMarketplaces": {

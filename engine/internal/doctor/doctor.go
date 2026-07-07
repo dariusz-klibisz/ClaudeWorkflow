@@ -132,7 +132,9 @@ func HookLiveness(c *runctl.Ctl, snap *store.Run) string {
 	// Signal 3 (the multiply-app incident's signature): tests are being
 	// recorded by hand past Plan while Bash capture records none — either
 	// the PostToolUse hook is dead, or the test runner isn't recognized.
-	if pastPlan && testRuns >= 3 && autoTestRuns == 0 {
+	// Diff family only: artifact/assessment runs verify documents with
+	// manual checks by design (the arch-design run's false positive).
+	if snap.Family == "diff" && pastPlan && testRuns >= 3 && autoTestRuns == 0 {
 		return fmt.Sprintf("run %s has %d test-run records and NONE auto-captured — Bash test capture is not firing. Either the hook is dead (`wf doctor --bootstrap`), or the test runner isn't recognized: make the recorded verification-strategy commands match the real invocations, or declare custom runners in .workflow/config.json (\"runners\": [\"./scripts/test.sh\"])", snap.ID, testRuns)
 	}
 	// Signal 2 (broader): a substantial ledger with zero hook-side events.

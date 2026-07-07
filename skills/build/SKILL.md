@@ -10,11 +10,13 @@ Per task, in order:
    it to the wf record) to `in_progress`, and update the wf record:
    `wf record task updates=<task-event-id> status=in_progress` — the test
    capture binds runs to the single in-progress task automatically.
-2. **Red first**: write the failing test, run it (the failing run is
-   auto-captured and tagged with the task/AC). Then implement until green
-   (also auto-captured). Genuinely testless task?
+2. **Red first** (diff family): write the failing test, run it (the failing
+   run is auto-captured and tagged with the task/AC). Then implement until
+   green (also auto-captured). A genuinely testless DIFF task needs
    `wf contract waive <tid> --reason "…"` — otherwise TaskCompleted will
-   refuse the checkbox.
+   refuse the checkbox. **artifact/assessment tasks need NO test evidence
+   and NO waiver** — the test-first gate is diff-only; waiving doc tasks is
+   pure ceremony (the arch-design run waived 7 for nothing).
    **After your FIRST test run, confirm it was auto-captured** (`wf trace`
    or `wf status` shows the test-run with auto/hook provenance). If it
    wasn't: your runner isn't recognized — run it exactly as recorded in the

@@ -41,6 +41,28 @@ func TestLessonsSuggestFromSignals(t *testing.T) {
 	}
 }
 
+// Artifact runs record manual doc-check test-runs by design — the
+// runner-recognition suggestion must not fire there (the arch-design run's
+// false positive).
+func TestLessonsSuggestQuietForArtifactFamily(t *testing.T) {
+	c, _ := newCtl(t)
+	r, _ := c.RunStart("artifact", "arch-design")
+	_ = c.Store.Append(&store.Event{Run: r.ID, Phase: "verify", Kind: "test-run", Actor: "agent",
+		Data: map[string]any{"cmd": "grep -q x docs/d.md", "exit": 0, "grounded": true}})
+	_ = c.Store.Append(&store.Event{Run: r.ID, Phase: "verify", Kind: "test-run", Actor: "agent",
+		Data: map[string]any{"cmd": "grep -q y docs/d.md", "exit": 0, "grounded": true}})
+	_ = c.Store.Append(&store.Event{Run: r.ID, Phase: "verify", Kind: "test-run", Actor: "agent",
+		Data: map[string]any{"cmd": "grep -q z docs/d.md", "exit": 0, "grounded": true}})
+
+	out, err := LessonsSuggest(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "nothing to propose") {
+		t.Fatalf("artifact family must not trigger the runner suggestion:\n%s", out)
+	}
+}
+
 func TestLessonsAcceptProseAndReject(t *testing.T) {
 	c, dir := newCtl(t)
 	_, _ = c.RunStart("diff", "fix")

@@ -51,11 +51,17 @@ func LessonsSuggest(c *runctl.Ctl) (string, error) {
 	if s.Verdicts >= 2 && s.AutoVerdicts == 0 {
 		texts = append(texts, "All reviewer verdicts were recorded manually — the SubagentStop capture never fired. Run wf doctor --bootstrap at session start.")
 	}
-	if s.TestRuns >= 3 && s.AutoTestRuns == 0 {
-		texts = append(texts, "No test run was auto-captured — the runner isn't recognized. Record verification-strategy commands as the real invocations, or add the wrapper to config \"runners\".")
-	}
-	if len(s.UngroundedACs) > 0 {
-		texts = append(texts, fmt.Sprintf("AC(s) %s passed without a grounded green test-run. Tag AC verification runs (--ac) so evidence is hook-captured.", strings.Join(s.UngroundedACs, ", ")))
+	// test-run grounding signals are diff-family only: artifact/assessment
+	// runs verify documents with manual grep-style checks by design — zero
+	// auto-captures there is expected, not a lesson (the arch-design run's
+	// false-positive suggestion).
+	if s.Family == "diff" {
+		if s.TestRuns >= 3 && s.AutoTestRuns == 0 {
+			texts = append(texts, "No test run was auto-captured — the runner isn't recognized. Record verification-strategy commands as the real invocations, or add the wrapper to config \"runners\".")
+		}
+		if len(s.UngroundedACs) > 0 {
+			texts = append(texts, fmt.Sprintf("AC(s) %s passed without a grounded green test-run. Tag AC verification runs (--ac) so evidence is hook-captured.", strings.Join(s.UngroundedACs, ", ")))
+		}
 	}
 
 	existing := map[string]bool{}
