@@ -128,7 +128,7 @@ func Run(specPath string) int {
 	vs := env.Records("verdict")
 	t.check("S5c unparsed recorded (fails the phase gate)", len(vs) == 1 && vs[0].Data["status"] == "unparsed", fmt.Sprint(vs))
 	r = gates.Verdict(c, input(map[string]any{"hook_event_name": "SubagentStop", "agent_id": "sy",
-		"agent_type": "wf:code-security-reviewer",
+		"agent_type":             "wf:code-security-reviewer",
 		"last_assistant_message": "```verdict\nstatus: clean\ncriticals: 0\nmajors: 0\n```"}))
 	t.check("S5d valid verdict captured", !blocks(r), r.Stdout)
 
@@ -139,10 +139,14 @@ func Run(specPath string) int {
 	done := map[string]any{"hook_event_name": "TaskCompleted", "task_id": "n1", "task_subject": "impl feature"}
 	r = gates.TaskCompleted(c, input(done))
 	t.check("S6b completion without red→green rejected", blocks(r), r.Stderr)
-	red := map[string]any{"hook_event_name": "PostToolUse", "tool_name": "Bash",
-		"tool_input": map[string]any{"command": "go test ./..."}, "tool_response": map[string]any{"exit_code": 1}}
+	// the DOCUMENTED payload shapes: a red run fires PostToolUseFailure
+	// (exit code inside the error string); PostToolUse means success
+	red := map[string]any{"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "go test ./..."},
+		"error":      "Command exited with non-zero status code 1", "is_interrupt": false}
 	green := map[string]any{"hook_event_name": "PostToolUse", "tool_name": "Bash",
-		"tool_input": map[string]any{"command": "go test ./..."}, "tool_response": map[string]any{"exit_code": 0}}
+		"tool_input":    map[string]any{"command": "go test ./..."},
+		"tool_response": map[string]any{"stdout": "ok", "stderr": "", "interrupted": false, "isImage": false}}
 	_ = gates.CaptureTest(c, input(red))
 	_ = gates.CaptureTest(c, input(green))
 	r = gates.TaskCompleted(c, input(done))

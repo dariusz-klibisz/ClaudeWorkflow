@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/contracts"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/hookio"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/runctl"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/spec"
@@ -466,20 +467,88 @@ func TestCaptureTestGrounding(t *testing.T) {
 	}
 }
 
-func TestCaptureMissingExitIsUngrounded(t *testing.T) {
+// The documented event semantics (the four-TestRepo-runs discovery): the
+// Bash tool_response has NO exit-code field, and non-zero exits fire
+// PostToolUseFailure instead of PostToolUse. Grounding derives from the
+// event itself.
+func TestCaptureEventSemantics(t *testing.T) {
 	c := newCtl(t)
 	run, _ := c.RunStart("diff", "fix")
 	run.Phase = "build"
 	_ = c.Store.SaveRun(run)
-	_ = CaptureTest(c, hookInput(t, postToolUse("pytest -q", map[string]any{"stdout": "5 passed"})))
+
+	// green: PostToolUse means "completed successfully" ⇒ exit 0, grounded —
+	// the real payload shape has only stdout/stderr/interrupted/isImage
+	_ = CaptureTest(c, hookInput(t, postToolUse("pytest -q", map[string]any{
+		"stdout": "5 passed", "stderr": "", "interrupted": false, "isImage": false})))
+
+	// red: PostToolUseFailure carries the code inside the error string
+	failure := func(cmd, errStr string, isInterrupt bool) string {
+		raw, _ := json.Marshal(map[string]any{
+			"hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+			"tool_input": map[string]any{"command": cmd},
+			"error":      errStr, "is_interrupt": isInterrupt,
+		})
+		return string(raw)
+	}
+	_ = CaptureTest(c, hookInput(t, failure("pytest -q", "Command exited with non-zero status code 1", false)))
+	// interrupted runs are not evidence — no record at all
+	_ = CaptureTest(c, hookInput(t, failure("pytest -q", "Command exited with non-zero status code 130", true)))
+	// unparseable failure (timeout): ran, proves nothing — ungrounded record
+	_ = CaptureTest(c, hookInput(t, failure("pytest -q", "Command timed out after 120s", false)))
+	// chained commands report the LAST command's exit — recorded ungrounded
+	_ = CaptureTest(c, hookInput(t, postToolUse("pytest -q && echo done", map[string]any{"stdout": "ok"})))
+
 	env, _ := c.Env(run)
 	trs := env.Records("test-run")
-	if len(trs) != 1 {
-		t.Fatalf("capture expected, got %d", len(trs))
+	if len(trs) != 4 {
+		t.Fatalf("want 4 records (green, red, timeout, chained — interrupt skipped), got %d: %v", len(trs), trs)
 	}
-	if g, _ := trs[0].Data["grounded"].(bool); g {
-		t.Error("missing exit code must never ground (exit:null rule)")
+	if g, _ := trs[3].Data["grounded"].(bool); g {
+		t.Errorf("chained command must be ungrounded: %v", trs[3].Data)
 	}
+	if g, _ := trs[0].Data["grounded"].(bool); !g || trs[0].Data["exit"] != float64(0) && trs[0].Data["exit"] != 0 {
+		t.Errorf("PostToolUse success must ground exit 0: %v", trs[0].Data)
+	}
+	if g, _ := trs[1].Data["grounded"].(bool); !g {
+		t.Errorf("failure with parseable code must ground: %v", trs[1].Data)
+	}
+	if e, ok := trs[1].Data["exit"].(float64); !ok && trs[1].Data["exit"] != 1 {
+		t.Errorf("red exit must be 1: %v %v", e, trs[1].Data)
+	}
+	if g, _ := trs[2].Data["grounded"].(bool); g {
+		t.Errorf("timeout failure must be ungrounded: %v", trs[2].Data)
+	}
+	// red→green pair from pure hook events satisfies the task gate
+	if !hasGroundedPair(t, trs) {
+		t.Error("hook-only red+green must form usable evidence")
+	}
+}
+
+func hasGroundedPair(t *testing.T, trs []contracts.Record) bool {
+	t.Helper()
+	red, green := false, false
+	for _, tr := range trs {
+		g, _ := tr.Data["grounded"].(bool)
+		if !g {
+			continue
+		}
+		switch v := tr.Data["exit"].(type) {
+		case float64:
+			if v == 0 {
+				green = true
+			} else {
+				red = true
+			}
+		case int:
+			if v == 0 {
+				green = true
+			} else {
+				red = true
+			}
+		}
+	}
+	return red && green
 }
 
 // The multiply-app incident: stdlib `python3 -m unittest` was invisible to

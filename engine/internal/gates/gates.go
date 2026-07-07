@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/contracts"
@@ -640,8 +641,11 @@ func CaptureTest(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	if !matched {
 		return hookio.Allow()
 	}
-	exit, hasExit := responseExit(in.ToolResponse)
-	grounded := hasExit && !filterPipe.MatchString(cmd)
+	if interrupted(in) {
+		return hookio.Allow() // a ctrl-C'd run is not evidence, red or green
+	}
+	exit, hasExit := commandExit(in)
+	grounded := hasExit && !filterPipe.MatchString(cmd) && !chained(cmd)
 	data := map[string]any{"cmd": cmd, "grounded": grounded}
 	if hasExit {
 		data["exit"] = exit
@@ -772,6 +776,64 @@ func commandHead(cmd string) string {
 	return strings.Join(fields[i:], " ")
 }
 
+// commandExit resolves the exit code from the DOCUMENTED hook event
+// semantics (the four-TestRepo-runs discovery): the Bash tool_response
+// carries no exit-code field of any name, and a non-zero exit never fires
+// PostToolUse at all —
+//   - PostToolUse means the command "completed successfully" ⇒ exit 0;
+//   - PostToolUseFailure carries the code inside the error string
+//     ("Command exited with non-zero status code 1").
+//
+// An explicit response field still wins if a future release adds one.
+func commandExit(in *hookio.Input) (int, bool) {
+	if exit, ok := responseExit(in.ToolResponse); ok {
+		return exit, true
+	}
+	switch in.HookEventName {
+	case "PostToolUse":
+		return 0, true
+	case "PostToolUseFailure":
+		if m := failureExitRe.FindStringSubmatch(in.Error); m != nil {
+			if n, err := strconv.Atoi(m[1]); err == nil {
+				return n, true
+			}
+		}
+		// a failure without a parseable code (timeout, spawn error…) ran
+		// but proves nothing — recorded ungrounded
+		return 0, false
+	}
+	return 0, false
+}
+
+var failureExitRe = regexp.MustCompile(`non-zero (?:status|exit) code (\d+)`)
+
+// interrupted: a user-interrupted command is not evidence in either
+// direction. PostToolUse carries `interrupted` in the response; the failure
+// event carries top-level `is_interrupt`.
+func interrupted(in *hookio.Input) bool {
+	if in.IsInterrupt {
+		return true
+	}
+	var m struct {
+		Interrupted bool `json:"interrupted"`
+	}
+	if len(in.ToolResponse) > 0 && json.Unmarshal(in.ToolResponse, &m) == nil {
+		return m.Interrupted
+	}
+	return false
+}
+
+// chained: `&&`/`||`/`;`/newline chains report the LAST command's exit, not
+// the runner's — evidence quality guard (run 4's "compound piped commands"
+// confusion, codified). Heuristic on purpose; false positives only cost a
+// grounded flag, never a record.
+func chained(cmd string) bool {
+	return strings.Contains(cmd, "&&") || strings.Contains(cmd, "||") ||
+		strings.Contains(cmd, ";") || strings.Contains(cmd, "\n")
+}
+
+// responseExit checks for an explicit exit-code field in the tool response
+// (none is documented today; kept for forward compatibility).
 func responseExit(raw json.RawMessage) (int, bool) {
 	if len(raw) == 0 {
 		return 0, false
@@ -787,8 +849,6 @@ func responseExit(raw json.RawMessage) (int, bool) {
 			}
 		}
 	}
-	// Bash tool responses without an explicit code: interrupted=false and no
-	// error usually means success, but we refuse to guess — ungrounded.
 	return 0, false
 }
 

@@ -45,6 +45,22 @@
         "matcher": "AskUserQuestion"
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "capture",
+              "bash"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [

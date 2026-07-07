@@ -33,6 +33,12 @@ type Input struct {
 	ToolName     string          `json:"tool_name"`
 	ToolInput    json.RawMessage `json:"tool_input"`
 	ToolResponse json.RawMessage `json:"tool_response"`
+	// PostToolUseFailure only: failed tool calls never reach PostToolUse —
+	// a non-zero Bash exit arrives HERE, with the code embedded in the
+	// human-readable error string ("Command exited with non-zero status
+	// code 1") and no tool_response at all.
+	Error       string `json:"error"`
+	IsInterrupt bool   `json:"is_interrupt"`
 
 	// Stop family
 	StopHookActive       bool            `json:"stop_hook_active"`

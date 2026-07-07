@@ -122,6 +122,13 @@ func hooksJSON(sp *spec.Spec) []byte {
 				// hook-captured user-answer records that wf approve links
 				group("AskUserQuestion", exec(10, "capture", "question")),
 			},
+			// failed tool calls never fire PostToolUse — a RED test run
+			// (non-zero exit) arrives here, with the exit code embedded in
+			// the error string. Without this entry no red evidence is ever
+			// auto-captured (the four-TestRepo-runs incident).
+			"PostToolUseFailure": []any{
+				group("Bash", exec(10, "capture", "bash")),
+			},
 		},
 	}
 	raw, _ := json.MarshalIndent(doc, "", "  ")
