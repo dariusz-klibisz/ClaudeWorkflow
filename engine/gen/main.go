@@ -175,7 +175,16 @@ func agentSkeletons(check bool, root string, sp *spec.Spec) error {
 	for _, a := range sp.Roster {
 		p := filepath.Join(dir, a.Name+".md")
 		if _, err := os.Stat(p); err == nil {
-			continue // hand-authored content is never overwritten
+			// hand-authored content is never overwritten — but the roster
+			// and the frontmatter must agree on memory (the M4 `memory:
+			// project` subset is deliberate: design-reviewer,
+			// code-quality-reviewer, adversary — 06 §"Frontmatter").
+			if check {
+				if err := checkAgentMemory(p, a); err != nil {
+					return err
+				}
+			}
+			continue
 		}
 		if check {
 			return fmt.Errorf("agent file missing for roster entry %q (run go generate)", a.Name)
@@ -210,6 +219,38 @@ func agentSkeletons(check bool, root string, sp *spec.Spec) error {
 }
 
 // ---------------------------------------------------------------------------
+
+// checkAgentMemory verifies the roster's `memory:` field matches the agent
+// file's frontmatter — drift here silently changes which agents accumulate
+// cross-run recall.
+func checkAgentMemory(path string, a spec.Agent) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	got := frontmatterField(string(raw), "memory")
+	if got != a.Memory {
+		return fmt.Errorf("agent %q: frontmatter memory %q != roster memory %q (align agents/%s.md with workflow.yaml)", a.Name, got, a.Memory, a.Name)
+	}
+	return nil
+}
+
+// frontmatterField extracts a scalar field from the leading --- block.
+func frontmatterField(content, field string) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return ""
+	}
+	for _, line := range lines[1:] {
+		if strings.TrimSpace(line) == "---" {
+			break
+		}
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), field+":"); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
 
 func writeOrCheck(check bool, path string, content []byte) (drift bool) {
 	cur, err := os.ReadFile(path)
