@@ -1,0 +1,1 @@
+Investigate this repository and summarize what it contains, following the project workflow. Make reasonable assumptions instead of asking questions; if the workflow requires an approval you cannot obtain, park the run honestly.

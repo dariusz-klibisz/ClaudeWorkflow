@@ -41,10 +41,19 @@ project` enablement; force-escalation; `wf run adopt`; docs site (the plugin
 README). (v0.36 migration was cut during M1 — replaced by a hard refusal
 guard on legacy scaffolds, 02 §6.)
 
-**M5 — Release engineering.**
+**M5 — Release engineering.** *(delivered)*
 CI: cross-compile matrix, `claude plugin validate --strict`, generated-file
 drift checks, selftest on mac/linux/windows; adversarial E2E (below);
 versioned marketplace release; stable/latest channels if wanted.
+*As built:* binary distribution went fetch-on-first-use (07 §4-B) — release
+binaries attach to GitHub Releases (tag-triggered release.yml), verified
+against the committed `bin/MANIFEST` trust anchor via reproducible builds
+(`make dist RELEASE=1`, GOTOOLCHAIN pinned). Native Windows resolved without
+platform-scoped hooks: one manual first install, then engine-mediated
+self-update at SessionStart (`wf inject session` → doctor.SelfUpdate).
+Adversarial E2E: 7 automated scenarios (`e2e/run.sh`) + 2 manual
+(`e2e/MANUAL.md`: adopt-resume, compaction soak), CI on dispatch/tags.
+Channels deferred (single stable channel).
 
 ## 2. Validation plan (the release gate)
 

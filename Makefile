@@ -25,7 +25,7 @@ PLATFORMS := linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64 win
 LDFLAGS := -s -w -X main.Version=$(VERSION_FULL)
 BASE_URL := https://github.com/dariusz-klibisz/ClaudeWorkflow/releases/download
 
-.PHONY: test gen check build dist manifest verify-manifest clean
+.PHONY: test gen check build dist manifest verify-manifest e2e clean
 
 test:
 	cd engine && go vet ./... && go test -race ./...
@@ -79,6 +79,12 @@ verify-manifest:
 	@grep '^version $(VERSION)$$' bin/MANIFEST >/dev/null || { echo "MANIFEST version != plugin.json $(VERSION)"; exit 1; }
 	@cd bin && grep ' wf-' MANIFEST | sha256sum -c -
 	@echo "MANIFEST verified against built artifacts"
+
+# adversarial E2E (the release gate, 09 §2) — headless Claude Code against a
+# hostile-overlay fixture; SCENARIO=… to run a subset. See e2e/MANUAL.md for
+# the two scenarios that stay manual.
+e2e:
+	sh e2e/run.sh $(SCENARIO)
 
 clean:
 	rm -f bin/wf-* bin/VERSION bin/SHA256SUMS
