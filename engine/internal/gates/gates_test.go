@@ -680,6 +680,13 @@ func TestCaptureQuestion(t *testing.T) {
 		t.Fatal("capture must be auto:true")
 	}
 
+	// the circle-area-run shape: response echoes the questions with ALL
+	// option labels PLUS the documented answers map — only the chosen
+	// value may be captured, not the label flood
+	_ = CaptureQuestion(c, hookInput(t, post(
+		`{"questions":[{"question":"What kind of app?"}]}`,
+		`{"questions":[{"question":"What kind of app?","options":[{"label":"Command-line (CLI)"},{"label":"Web app"},{"label":"Other / specify"}]}],"answers":{"What kind of app?":"Command-line (CLI)"}}`)))
+
 	// unknown response shape with a nested label still extracts
 	_ = CaptureQuestion(c, hookInput(t, post(
 		`{"questions":[{"question":"Which option?"}]}`,
@@ -692,8 +699,13 @@ func TestCaptureQuestion(t *testing.T) {
 	_ = CaptureQuestion(c, hookInput(t, post(`{"weird":true}`, `{"answer":"yes"}`)))
 
 	env, _ = c.Env(run)
-	if got := len(env.Records("user-answer")); got != 2 {
-		t.Fatalf("want 2 user-answers total, got %d", got)
+	uas = env.Records("user-answer")
+	if got := len(uas); got != 3 {
+		t.Fatalf("want 3 user-answers total, got %d", got)
+	}
+	// the answers-map tier wins over the label flood
+	if a, _ := uas[1].Data["answer"].(string); a != "Command-line (CLI)" {
+		t.Fatalf("chosen answer must be extracted exactly, got %q", a)
 	}
 }
 

@@ -1001,17 +1001,93 @@ func questionText(raw json.RawMessage) string {
 	return strings.Join(collectStrings(raw, map[string]bool{"question": true}), " | ")
 }
 
-// answerText extracts the chosen answer(s) from tool_response — shape
-// unverified upstream, so: known keys first, then a generic walk.
+// answerText extracts the CHOSEN answer(s) from tool_response, tiered so
+// the echoed option labels can't flood the evidence (the circle-area run:
+// "No, needs changes | Yes, that's correct" — every label, not the pick):
+//  1. the documented `answers` object ({question: chosen label}) or
+//     array-of-{question,answer} variants;
+//  2. explicit answer-ish keys;
+//  3. bare `label` values — last resort, may include unchosen options.
 func answerText(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
 	}
-	got := collectStrings(raw, map[string]bool{"answer": true, "answers": true, "selected": true, "choice": true, "label": true})
-	if len(got) > 0 {
+	if got := answersValues(raw); len(got) > 0 {
+		return strings.Join(got, " | ")
+	}
+	if got := collectStrings(raw, map[string]bool{"answer": true, "selected": true, "choice": true}); len(got) > 0 {
+		return strings.Join(got, " | ")
+	}
+	if got := collectStrings(raw, map[string]bool{"label": true}); len(got) > 0 {
 		return strings.Join(got, " | ")
 	}
 	return ""
+}
+
+// answersValues finds `answers` nodes anywhere in the payload and collects
+// the chosen values.
+func answersValues(raw json.RawMessage) []string {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return nil
+	}
+	var out []string
+	var walk func(node any)
+	walk = func(node any) {
+		switch n := node.(type) {
+		case map[string]any:
+			for k, child := range n {
+				if k == "answers" {
+					answerNode(child, &out)
+					continue
+				}
+				walk(child)
+			}
+		case []any:
+			for _, c := range n {
+				walk(c)
+			}
+		}
+	}
+	walk(v)
+	sort.Strings(out)
+	return out
+}
+
+// answerNode flattens an `answers` value: {question: label} maps (take the
+// values), arrays of {question, answer} objects, or plain strings.
+func answerNode(node any, out *[]string) {
+	switch n := node.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(n))
+		for k := range n {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if s, ok := n[k].(string); ok {
+				if s != "" {
+					*out = append(*out, s)
+				}
+				continue
+			}
+			answerNode(n[k], out)
+		}
+	case []any:
+		for _, c := range n {
+			if m, ok := c.(map[string]any); ok {
+				if a, ok := m["answer"].(string); ok && a != "" {
+					*out = append(*out, a)
+					continue
+				}
+			}
+			answerNode(c, out)
+		}
+	case string:
+		if n != "" {
+			*out = append(*out, n)
+		}
+	}
 }
 
 // collectStrings walks arbitrary JSON and gathers string values found under
