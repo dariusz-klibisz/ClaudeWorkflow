@@ -55,6 +55,7 @@ status: <clean|safe|changes-required|unsafe|n/a>
 criticals: <int>
 majors: <int>
 scope: <abuse-case|attack-tree|red-team>
+reason: <required for n/a — one line: why this review does not apply>
 ```
 
 clean/safe require criticals=0 and majors=0.

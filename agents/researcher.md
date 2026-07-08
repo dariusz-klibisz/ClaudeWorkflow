@@ -40,6 +40,7 @@ status: <clean|n/a>
 criticals: 0
 majors: 0
 scope: <context|design>
+reason: <required for n/a — one line: why this review does not apply>
 ```
 
 `clean` = questions answered with sources; `n/a` = research was not needed

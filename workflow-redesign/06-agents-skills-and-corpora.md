@@ -20,13 +20,13 @@ via SubagentStart/SubagentStop matchers; subagents are background-by-default
 - Explore/Plan are **native built-ins** — no shipped `explore` agent (removes
   the D6 shadowing).
 
-## 2. Roster v2 (15 agents; 11 gating)
+## 2. Roster v2 (16 agents; 12 gating — the 16th, `compliance-reviewer`, arrived with the compliance packs and is idle until a regulated pack installs `local.*` items)
 
 ### Author-side (not gated)
 
 | Agent | Model | Tools | Phase | Mandate / corpus routing |
 |---|---|---|---|---|
-| `researcher` | inherit | WebSearch, WebFetch, Read, Grep | Context, Design | Sourced external research; Design mode: 2–4 genuine candidates per stage with sources; honors carried `rejected` option IDs |
+| `researcher` | inherit | WebSearch, WebFetch, Read, Grep, Glob | Context, Design | Sourced external research; Design mode: 2–4 genuine candidates per stage with sources; honors carried `rejected` option IDs |
 | `designer` | opus | Read, Grep, Glob | Design (stage 1 system, stage 2 software — one agent, staged via injected scope) | Enumerates/validates/selects; corpus: `design/06` (decide what matters) → `01`/`02` (principles/patterns) → `03` (software design); cites file+section |
 | `ux-designer` ◇ | opus | Read, Grep, Glob | Design stage 3 (`ux: true` projects) | UI/interaction candidates → `docs/design/ux-<slug>.md`; corpus `ux/00-index` → deep dives |
 | `implementer` | inherit | Read, Grep, Glob, **Edit, Write, Bash** | Build | Executes tasks test-first under the task gates; corpus: `coding/` root files + `languages/<ext>` per the extension routing table; cites rule IDs (`GEN-SEC-03`, `PY-NAME-01`) |

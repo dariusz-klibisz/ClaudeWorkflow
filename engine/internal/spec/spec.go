@@ -50,10 +50,18 @@ type Phase struct {
 }
 
 type Loops struct {
-	From         string   `yaml:"from"`
-	Targets      []string `yaml:"targets"`
-	MaxPerRun    int      `yaml:"max_per_run"`
-	MaxSlipPerAC int      `yaml:"max_slip_per_ac"`
+	From         string    `yaml:"from"`
+	Targets      []string  `yaml:"targets"`
+	MaxPerRun    int       `yaml:"max_per_run"`
+	MaxSlipPerAC int       `yaml:"max_slip_per_ac"`
+	Ship         *ShipLoop `yaml:"ship"` // optional: loop from the last phase back
+}
+
+// ShipLoop lets Ship-stage discoveries (auditor criticals, un-resolvable
+// trace findings) re-open a phase in-run instead of forcing dispositions.
+type ShipLoop struct {
+	Target string   `yaml:"target"`
+	Causes []string `yaml:"causes"`
 }
 
 type Agent struct {
@@ -346,6 +354,14 @@ func (s *Spec) Validate() error {
 			fail("loop target %q not a phase", t)
 		}
 	}
+	if sl := s.Loops.Ship; sl != nil {
+		if !phaseIDs[sl.Target] {
+			fail("loops.ship.target %q not a phase", sl.Target)
+		}
+		if len(sl.Causes) == 0 {
+			fail("loops.ship requires at least one cause")
+		}
+	}
 
 	// Roster: unique names, real phases, resolvable corpus routes.
 	agents := map[string]bool{}
@@ -443,6 +459,16 @@ func (s *Spec) validatePredicate(id, pred string, params map[string]any, kinds, 
 	switch pred {
 	case PredRecordExists, PredNoOpen:
 		kindOf("kind")
+		if pred == PredRecordExists {
+			if el, ok := params["elements"]; ok {
+				m, isMap := el.(map[string]any)
+				if !isMap {
+					fail("contract %q: record-exists elements must be {field, min}", id)
+				} else if f, _ := m["field"].(string); f == "" {
+					fail("contract %q: record-exists elements requires field", id)
+				}
+			}
+		}
 		if pred == PredNoOpen {
 			if _, ok := params["field"].(string); !ok {
 				fail("contract %q: no-open requires field", id)
@@ -488,8 +514,29 @@ func (s *Spec) validatePredicate(id, pred string, params map[string]any, kinds, 
 				}
 			}
 		}
+		if v, ok := params["mentions"]; ok {
+			m, isMap := v.(map[string]any)
+			if !isMap {
+				fail("contract %q: artifact-present mentions must be {kind, field}", id)
+			} else {
+				k, _ := m["kind"].(string)
+				if !kinds[k] {
+					fail("contract %q: mentions kind %q undeclared", id, k)
+				}
+				if f, _ := m["field"].(string); f == "" {
+					fail("contract %q: mentions requires field", id)
+				}
+			}
+		}
 	case PredPerEach:
 		kindOf("kind")
+		if v, ok := params["min"]; ok {
+			switch v.(type) {
+			case int, float64:
+			default:
+				fail("contract %q: per-each min must be an integer", id)
+			}
+		}
 		item, ok := params["item"].(map[string]any)
 		if !ok {
 			fail("contract %q: per-each requires item", id)

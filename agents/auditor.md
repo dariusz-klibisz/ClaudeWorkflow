@@ -28,7 +28,11 @@ forces, parks, `WF_ENFORCE` firings).
    no task neither done nor carried (the gate enforces these — your job is
    to catch *miscategorized* items, e.g. a "done" task whose DoD records
    don't support it).
-5. Findings: `[HIGH|MED|LOW] <what> — <record ref>`. HIGH = the audit trail
+5. Evidence-pairing probe: `wf report` lists weakly-paired red→green tasks
+   (same runner, diverging selectors — the green may not exercise what the
+   red exercised). For each, judge whether the green plausibly covers the
+   red's test; an implausible pair presented as test-first evidence = major.
+6. Findings: `[HIGH|MED|LOW] <what> — <record ref>`. HIGH = the audit trail
    is untruthful or a leak escapes the run. Map HIGH→criticals, MED→majors
    in the verdict.
 
@@ -45,6 +49,7 @@ status: <clean|changes-required|n/a>
 criticals: <int>
 majors: <int>
 scope: <as injected, if any>
+reason: <required for n/a — one line: why this review does not apply>
 ```
 
 clean requires criticals=0 and majors=0.

@@ -1,0 +1,17 @@
+{
+  "$id": "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/finding.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "evidence": {},
+    "fid": {},
+    "severity": {},
+    "text": {}
+  },
+  "required": [
+    "fid",
+    "severity",
+    "text"
+  ],
+  "title": "wf record: finding",
+  "type": "object"
+}

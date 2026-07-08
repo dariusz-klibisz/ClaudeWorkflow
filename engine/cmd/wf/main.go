@@ -588,7 +588,7 @@ func contractCmd(ctl *runctl.Ctl, rest []string) int {
 func loopCmd(ctl *runctl.Ctl, rest []string) int {
 	fs := flag.NewFlagSet("loop", flag.ContinueOnError)
 	ac := fs.String("ac", "", "the failing AC")
-	cause := fs.String("cause", "", "slip|design|plan")
+	cause := fs.String("cause", "", "slip|design|plan (from verify) | audit (from ship)")
 	evidence := fs.String("evidence", "", "observed vs expected")
 	if err := fs.Parse(rest); err != nil {
 		return 3
@@ -998,7 +998,7 @@ phases:          wf phase exit [--force --reason …]     (exit 0 ok / 2 gaps / 
 records:         wf record <kind> [--json '{…}'] [key=value …]
                  wf approve <gate> [--payload …]
                  wf contract waive <id> --reason …
-                 wf loop --ac AC-1 --cause slip|design|plan --evidence …
+                 wf loop --ac AC-1 --cause slip|design|plan|audit --evidence …
                  wf park --reason …
                  wf risk scan [--text …] [--add signal]…
 grounding:       wf deps check · wf origin discover [--path …] [--text …]

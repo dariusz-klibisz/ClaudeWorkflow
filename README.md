@@ -27,16 +27,34 @@ expanding scope — and records every escape it grants.
 - **Grounded evidence.** Test runs are captured from the Bash tool by the
   hook itself (`auto:true`) — recognized from a built-in runner list, the
   run's own recorded verification commands (any language), or project
-  config `"runners"`. Manual records stay possible but are marked
-  self-attested and surface in `wf report`.
+  config `"runners"`. Red→green pairs are runner-matched: a cross-runner
+  "pair" (a gitleaks red before a pytest green) never satisfies test-first,
+  and same-runner pairs with diverging selectors pass but are surfaced as
+  weakly-paired in `wf report`. Manual records stay possible but are marked
+  self-attested and surface in `wf report` — and once verdict capture has
+  proven itself alive in a run, a hand-recorded gating-reviewer verdict no
+  longer satisfies the contract (re-run the reviewer, or disposition it).
+- **Content floors, not just checkboxes.** Requirements must carry ≥1 AC
+  (write-time refusal — an AC-less requirement used to dodge every per-AC
+  gate), context maps and negative-space walks have waivable ≥3-element
+  depth floors, option-sets need ≥2 genuine candidates and the engine
+  refuses re-selecting a previously rejected option, and assessment runs
+  record structured `finding`s that must each appear verbatim in the
+  on-disk report.
 - **Audited escapes, not hidden ones.** `/wf:park` (honest stop),
   `/wf:force` (bypass one gate; escalates — the 3rd force auto-parks the
-  run). Everything is recorded and reported.
+  run). Everything is recorded and reported. Loops run Verify→{Build,
+  Design, Plan} on failing ACs — and Ship-stage discoveries (a failing
+  audit, an open trace finding) loop back to Verify (`--cause audit`)
+  instead of being dispositioned around.
 - **Anchored approvals — three dials.** Approvals are self-attested by
   design (no hook proves a human typed them), but answers given through
   AskUserQuestion are hook-captured and linked to the approval
   (`answer_ref`) — harder to fabricate, still not proof, and reported as
-  such. Opt-in strictness in `.workflow/config.json` `flags`:
+  such. Scope/design/plan approvals additionally **bind engine-computed
+  refs** (the requirement rids, selected options, task ids in scope at
+  approval time): records added afterwards without re-approval surface as
+  approval-drift findings at Ship. Opt-in strictness in `.workflow/config.json` `flags`:
   `"approvals": "hardened"` refuses un-anchored approvals outright;
   `"approvals": "challenge"` goes further — each approval requires a
   **single-use code the engine shows only in your statusline** (never to
@@ -129,7 +147,7 @@ wf pack install <dir-or-yaml>  add-only contract packs (validated before merge);
 wf doctor [--bootstrap]        state health, ledger hash-chain verification,
                                corpus snapshot age · verifies AND heals the
                                hook engine
-wf selftest                    33 in-scaffold enforcement scenarios
+wf selftest                    39 in-scaffold enforcement scenarios
 ```
 
 ## Updating

@@ -22,10 +22,12 @@ import (
 
 type T struct {
 	failures []string
+	checks   int
 	ctl      *runctl.Ctl
 }
 
 func (t *T) check(name string, ok bool, detail string) {
+	t.checks++
 	if ok {
 		fmt.Printf("  ✓ %s\n", name)
 	} else {
@@ -289,6 +291,55 @@ func Run(specPath string) int {
 	t.check("S12d code-bearing answer approves, marked and consumed",
 		cherr == nil && chEv != nil && chEv.Data["challenge"] == true && c5.PendingChallenge() == nil, fmt.Sprint(cherr))
 
-	fmt.Printf("selftest: %d scenario checks, %d failure(s)\n", 33, len(t.failures))
+	// S13: write-time content validation — the lies are refused at record
+	// time, not caught later.
+	dir5, err := os.MkdirTemp("", "wf-selftest13-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "selftest:", err)
+		return 1
+	}
+	defer os.RemoveAll(dir5)
+	st5, _ := store.Open(dir5, true)
+	c6 := &runctl.Ctl{Store: st5, Spec: sp, Config: &store.Config{}}
+	_, _ = c6.RunStart("diff", "new")
+	_, e13a := c6.Record("requirement", map[string]any{"rid": "SWR-1", "level": "software", "text": "t", "status": "active", "acs": []any{}}, false, "agent")
+	t.check("S13a AC-less requirement refused at write time", e13a != nil, "")
+	_, e13b := c6.Record("option-set", map[string]any{"stage": "system", "candidates": []any{"a", "b"}, "selected": "a",
+		"rejected": []any{map[string]any{"id": "b", "reason": "priced out"}}}, false, "agent")
+	_, e13c := c6.Record("option-set", map[string]any{"stage": "system", "candidates": []any{"a", "b"}, "selected": "b",
+		"rejected": []any{}}, false, "agent")
+	t.check("S13b rejected option cannot be re-selected", e13b == nil && e13c != nil, fmt.Sprint(e13b, e13c))
+	_, e13d := c6.Record("verdict", map[string]any{"agent": "ux-reviewer", "status": "n/a", "criticals": 0, "majors": 0}, false, "agent")
+	t.check("S13c reasonless n/a verdict refused", e13d != nil, "")
+
+	// S14: a manual gating verdict cannot substitute for a live capture —
+	// once any auto verdict exists, hand-recorded gating verdicts fail the
+	// contract until re-run or dispositioned.
+	run6, _ := c6.Store.LoadRun()
+	run6.Phase = "design"
+	_ = c6.Store.SaveRun(run6)
+	_, _ = c6.Record("verdict", map[string]any{"agent": "design-reviewer", "status": "clean", "criticals": 0, "majors": 0}, true, "hook")
+	_, _ = c6.Record("verdict", map[string]any{"agent": "critic", "status": "safe", "criticals": 0, "majors": 0}, false, "agent")
+	findings14, _, _ := c6.PhaseExit(false, "")
+	unmetCritic := false
+	for _, f := range findings14 {
+		if f.ID == "design.critic" {
+			unmetCritic = true
+		}
+	}
+	t.check("S14 manual gating verdict refused while capture is alive", unmetCritic, fmt.Sprint(findings14))
+
+	// S15: ship-stage audit loop — grounds required, then re-opens verify.
+	run6, _ = c6.Store.LoadRun()
+	run6.Phase = "ship"
+	run6.ExitedPh = []string{"frame", "context", "design", "plan", "build", "verify"}
+	_ = c6.Store.SaveRun(run6)
+	_, e15a := c6.Loop("AC-1", "audit", "auditor found the delivery contradicts verified state")
+	t.check("S15a audit loop without grounds refused", e15a != nil, fmt.Sprint(e15a))
+	_, _ = c6.Record("verdict", map[string]any{"agent": "auditor", "status": "changes-required", "criticals": 1, "majors": 0}, true, "hook")
+	target15, e15b := c6.Loop("AC-1", "audit", "auditor critical: RTM contradicts the diff")
+	t.check("S15b failing audit grounds the loop back to verify", e15b == nil && target15 == "verify", fmt.Sprint(target15, e15b))
+
+	fmt.Printf("selftest: %d scenario checks, %d failure(s)\n", t.checks, len(t.failures))
 	return len(t.failures)
 }

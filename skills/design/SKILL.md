@@ -37,9 +37,14 @@ Trivial diff with no design decisions? `wf phase waive design --reason "…"`
 - `wf approve design --payload "<selected options + risks + testability>"`
   — pose the confirmation via AskUserQuestion, naming the DESIGN in the
   question (the hook infers the topic and anchors the answer to this gate)
-  — after presenting to the user
+  — after presenting to the user. The engine binds the approval to the
+  selected options — selections changed later without re-approval surface
+  as approval drift at Ship
 
 Loop re-entries (from Verify) must reference previously rejected option IDs
-— never re-propose a rejected option as new.
+— never re-propose a rejected option as new. The engine refuses an
+option-set whose `selected` was rejected by an earlier same-stage set; if a
+rejection genuinely no longer holds, record a disposition referencing that
+option-set first.
 
 `wf phase exit` when met.

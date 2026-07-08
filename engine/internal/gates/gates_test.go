@@ -100,7 +100,11 @@ func TestStopAllowsWhenOnlyUserBlocked(t *testing.T) {
 	rec("ambiguity", map[string]any{"lens": "user", "none": true, "disposition": "none"})
 	rec("requirement", map[string]any{"rid": "SWR-1", "level": "software", "text": "t", "status": "active",
 		"acs": []any{map[string]any{"id": "AC-1", "text": "a", "verifiable": true}}})
-	rec("completeness", map[string]any{"items": []any{}})
+	rec("completeness", map[string]any{"items": []any{
+		map[string]any{"case": "error", "disposition": "covered"},
+		map[string]any{"case": "empty", "disposition": "covered"},
+		map[string]any{"case": "concurrent", "disposition": "n/a"},
+	}})
 	rec("verdict", map[string]any{"agent": "adversary", "scope": "abuse-case", "status": "clean", "criticals": 0, "majors": 0})
 	rec("verdict", map[string]any{"agent": "lens-reviewer", "scope": "security", "status": "clean", "criticals": 0, "majors": 0})
 	r := Stop(c, hookInput(t, stopPayload))
@@ -278,6 +282,37 @@ func TestVerdictMissingBlocksTwiceThenUnparsed(t *testing.T) {
 	vs := env.Records("verdict")
 	if len(vs) != 1 || vs[0].Data["status"] != "unparsed" {
 		t.Fatalf("unparsed verdict must be recorded: %+v", vs)
+	}
+}
+
+// n/a self-attests inapplicability — reasonless n/a must not parse; a
+// reasoned one is captured with the reason on the record.
+func TestVerdictNAReasonRequired(t *testing.T) {
+	c := newCtl(t)
+	run, _ := c.RunStart("diff", "fix")
+	run.Phase = "build"
+	_ = c.Store.SaveRun(run)
+	bare := subagentStop("wf:ux-reviewer", "a7", "```verdict\nstatus: n/a\ncriticals: 0\nmajors: 0\n```")
+	r := Verdict(c, hookInput(t, bare))
+	if !isBlockDecision(r) {
+		t.Fatal("reasonless n/a must block like a missing verdict")
+	}
+	if !strings.Contains(r.Stdout, "reason") {
+		t.Errorf("block message must teach the reason line: %s", r.Stdout)
+	}
+	reasoned := subagentStop("wf:ux-reviewer", "a7",
+		"```verdict\nstatus: n/a\ncriticals: 0\nmajors: 0\nreason: no UI in this diff\n```")
+	r = Verdict(c, hookInput(t, reasoned))
+	if isBlockDecision(r) {
+		t.Fatalf("reasoned n/a must be captured: %+v", r)
+	}
+	env, _ := c.Env(run)
+	vs := env.Records("verdict")
+	if len(vs) != 1 {
+		t.Fatalf("verdict not recorded: %d", len(vs))
+	}
+	if got, _ := vs[0].Data["reason"].(string); got != "no UI in this diff" {
+		t.Errorf("reason not captured: %v", got)
 	}
 }
 

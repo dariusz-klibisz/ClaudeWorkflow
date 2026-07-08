@@ -48,6 +48,7 @@ status: <clean|changes-required|n/a>
 criticals: <int>
 majors: <int>
 scope: <as injected, if any>
+reason: <required for n/a — one line: why this review does not apply>
 ```
 
 clean requires criticals=0 and majors=0. `n/a` only for diffs with no

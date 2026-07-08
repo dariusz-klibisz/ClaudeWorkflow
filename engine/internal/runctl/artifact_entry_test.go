@@ -104,9 +104,9 @@ func TestPhaseExitBlocksOnNextEntryInputs(t *testing.T) {
 			t.Fatalf("%s: %v", kind, err)
 		}
 	}
-	rec("context-map", map[string]any{"entries": []any{"docs/"}, "sufficiency": "ok"})
+	rec("context-map", map[string]any{"entries": []any{"docs/", "docs/adr/", "README.md"}, "sufficiency": "ok"})
 	rec("reclassify", map[string]any{"result": "confirmed"})
-	rec("verdict", map[string]any{"agent": "researcher", "status": "n/a", "criticals": 0, "majors": 0})
+	rec("verdict", map[string]any{"agent": "researcher", "status": "n/a", "criticals": 0, "majors": 0, "reason": "no external research needed"})
 	if _, err := c.Approve("scope", ""); err != nil {
 		t.Fatal(err)
 	}

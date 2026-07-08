@@ -9,7 +9,9 @@ Contract first:
 
 - `wf record context-map --json '{"entries":["path — why it matters", …],"sufficiency":"…"}'`
   — the files/modules/systems actually examined (use the Explore subagent
-  for the mapping; record what you verified, not what you assume)
+  for the mapping; record what you verified, not what you assume). The gate
+  expects ≥3 entries (`context.map-depth`) — the code, its tests, its
+  callers/config all count; a genuinely smaller surface: waive with reason
 - `wf record assumption text="…" high_risk=true|false` — for every
   assumption the map could not verify
 - `wf record reclassify result=confirmed` — the checkpoint: does the
@@ -19,7 +21,10 @@ Contract first:
   — pose the confirmation via AskUserQuestion, naming the SCOPE in the
   question (the hook infers the topic and anchors the answer to this gate)
   — present the user: surviving requirements (active/dropped/revised),
-  high-risk assumptions, and the feasibility read; record after explicit OK
+  high-risk assumptions, and the feasibility read; record after explicit OK.
+  The engine binds the approval to the current requirement/assumption
+  baseline — records added later without re-approval surface as approval
+  drift at Ship
 - `@wf:researcher` verdict when external research ran; otherwise
   `wf contract waive context.research-grounded --reason "…"`
 

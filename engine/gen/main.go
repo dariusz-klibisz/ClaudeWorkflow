@@ -149,15 +149,22 @@ func checkProseParity(root string, sp *spec.Spec) error {
 		ids[c.ID] = true
 	}
 
-	// 1. every contract-id-shaped token in prose must exist in the spec
+	// 1. every contract-id-shaped token in prose must exist in the spec —
+	// including the design-record docs (workflow-redesign/), which claim to
+	// describe the implemented system: a stale item id there is drift.
 	proseFiles, _ := filepath.Glob(filepath.Join(root, "skills", "*", "SKILL.md"))
 	agentFiles, _ := filepath.Glob(filepath.Join(root, "agents", "*.md"))
+	designDocs, _ := filepath.Glob(filepath.Join(root, "workflow-redesign", "*.md"))
+	proseFiles = append(proseFiles, designDocs...)
 	for _, p := range append(proseFiles, agentFiles...) {
 		raw, err := os.ReadFile(p)
 		if err != nil {
 			return err
 		}
 		for _, tok := range contractIDRe.FindAllString(string(raw), -1) {
+			if strings.HasSuffix(tok, ".md") {
+				continue // "…-and-context.md" is a filename, not an item id
+			}
 			if !ids[tok] {
 				return fmt.Errorf("%s references contract id %q which does not exist in workflow.yaml", p, tok)
 			}
@@ -396,11 +403,13 @@ status: <clean|changes-required|safe|risky|unsafe|n/a>
 criticals: <int>
 majors: <int>
 scope: <assigned mode/lens, when one was given>
+reason: <required for n/a — one line: why this review does not apply>
 ` + "```" + `
 
 Rules: clean/safe require criticals=0 and majors=0. risky requires each
-concern listed above the block for disposition. n/a requires one line of
-reason. The SubagentStop gate blocks completion until this block parses.
+concern listed above the block for disposition. n/a without a reason line
+does not parse. The SubagentStop gate blocks completion until this block
+parses.
 `
 
 func agentSkeletons(check bool, root string, sp *spec.Spec) error {

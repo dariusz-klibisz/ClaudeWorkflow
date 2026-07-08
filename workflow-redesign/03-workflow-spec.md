@@ -227,7 +227,9 @@ definition is **data**, and the engine is a generic interpreter:
 
 ### 4.4 Plan
 - `task` records — atomic, each with definition-of-done + AC links, mirrored
-  to native `TaskCreate` (§7). diff: first task per AC is its failing test.
+  to native `TaskCreate` (§7). diff: test/implementation task pairs for
+  substantial ACs; ONE task per AC for small ones (accepted lesson from live
+  runs — mandatory pairs collapsed into waiver ceremony).
 - `verification-strategy` record per AC (method + tool/command) — becomes the
   Verify checklist.
 - `scope-boundary` record; leftover Frame `deferred` ambiguities dispositioned

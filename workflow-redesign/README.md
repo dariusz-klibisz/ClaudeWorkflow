@@ -37,7 +37,7 @@
 | Lifecycle | **7 phases** (down from 10) × **3 route families** (down from 12 rendered routes); classification labels kept as metadata | [03](03-workflow-spec.md) |
 | Gate inputs | **Structured records only** (engine-written JSONL). decisions.md becomes generated narrative — never parsed. Magic prose tokens are abolished | [03](03-workflow-spec.md), [08](08-state-and-storage.md) |
 | Workflow definition | **Declarative spec** (`workflow/workflow.yaml` in the plugin): phases, families, record kinds, and per-phase contract items are *data* interpreted by the engine; project-local contract additions via `.workflow/contracts.d/`; lesson `check:` items reuse the same representation | [03 §4.0](03-workflow-spec.md), [07 §4](07-engine-and-language.md) |
-| Agents | 15 agents (4 author-side + 11 gating, down from 34), single-sourced gating roster in the workflow spec, verdict protocol v2 enforced at `SubagentStop` | [06](06-agents-skills-and-corpora.md) |
+| Agents | 16 agents (4 author-side + 12 gating, down from 34; compliance-reviewer added with the compliance packs), single-sourced gating roster in the workflow spec, verdict protocol v2 enforced at `SubagentStop` | [06](06-agents-skills-and-corpora.md) |
 | Corpora | Bundled snapshots inside the plugin (`reference/design`, `reference/coding`, `reference/ux`), synced by script from the source repos | [06](06-agents-skills-and-corpora.md) |
 | Engine language | **Go static binary** (recommended; full trade-off matrix incl. TypeScript/Node and Python) | [07](07-engine-and-language.md) |
 | Repo footprint | Thin `CLAUDE.md` + `.claude/settings.json` (marketplace wiring) + `.workflow/` state + `docs/` deliverables — nothing else | [08](08-state-and-storage.md) |

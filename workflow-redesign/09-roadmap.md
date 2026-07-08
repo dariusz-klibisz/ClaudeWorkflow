@@ -55,6 +55,26 @@ Adversarial E2E: 7 automated scenarios (`e2e/run.sh`) + 2 manual
 (`e2e/MANUAL.md`: adopt-resume, compaction soak), CI on dispatch/tags.
 Channels deferred (single stable channel).
 
+**M6 — Validation-hardening batch.** *(delivered)*
+Closed the residual engine-checkable holes the post-M5 audit named:
+(1) write-time content floors — AC-less requirements refused, per-each
+gains `min` (kills the vacuous pass), context-map/completeness depth items
+(≥3 elements, waivable), option-sets need ≥2 candidates and the engine
+refuses re-selecting rejected option IDs (03 §4.3's promise, now real);
+(2) red→green pairing is runner-matched via the shared `cmdid` package —
+cross-runner pairs fail, selector-diverging pairs weak-pass and surface in
+`wf report` + the auditor briefing; (3) self-attestation shrunk — manual
+gating verdicts are refused once capture has proven alive in the run
+(disposition = the recorded escape), `n/a` verdicts require a `reason:`
+line (parse + write-time), and scope/design/plan approvals bind
+engine-computed refs with approval-drift findings at Ship trace;
+(4) process completeness — Ship-stage `wf loop --cause audit` re-opens
+Verify on a failing audit/open finding, assessment runs record structured
+`finding`s that `artifact-present`'s new `mentions` param greps for in the
+on-disk report; (5) prose parity extended to `workflow-redesign/` (dead
+contract IDs fail `gen -check`) and the known doc drift fixed inline.
+Selftest grew to 39 checks (S13–S15) with a drift-proof dynamic count.
+
 ## 2. Validation plan (the release gate)
 
 Every milestone keeps the layered tests of 07 §6. Before any release, the

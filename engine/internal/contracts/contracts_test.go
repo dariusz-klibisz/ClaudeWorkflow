@@ -306,6 +306,171 @@ func TestVerifyACVerdictsPerAC(t *testing.T) {
 	}
 }
 
+// The vacuous-pass fix: per-each items with min:1 fail when the element set
+// is empty (an AC-less requirement used to dodge every per-AC item).
+func TestPerEachMinGuardsVacuousPass(t *testing.T) {
+	b := &envBuilder{}
+	b.add("requirement", false, map[string]any{
+		"rid": "SWR-1", "level": "software", "text": "t", "status": "active",
+		"acs": []any{},
+	})
+	env := newEnv(t, b, "diff", "new", nil)
+	fs, _ := EvaluatePhase(env, "verify")
+	f, ok := findingIDs(fs)["verify.ac-verdicts"]
+	if !ok {
+		t.Fatal("zero ACs must fail verify.ac-verdicts (min 1), not pass vacuously")
+	}
+	if !contains(f.Detail, "min") {
+		t.Errorf("detail should explain the min guard: %q", f.Detail)
+	}
+	fs, _ = EvaluatePhase(env, "plan")
+	if _, ok := findingIDs(fs)["plan.verification-strategy"]; !ok {
+		t.Error("zero ACs must fail plan.verification-strategy (min 1)")
+	}
+	// with one AC + linked records, both clear
+	b2 := &envBuilder{}
+	b2.add("requirement", false, map[string]any{
+		"rid": "SWR-1", "level": "software", "text": "t", "status": "active",
+		"acs": []any{map[string]any{"id": "AC-1", "text": "a", "verifiable": true}},
+	})
+	b2.add("verification-strategy", false, map[string]any{"ac": "AC-1", "method": "unit test", "command": "go test"})
+	b2.add("ac-verdict", false, map[string]any{"ac": "AC-1", "status": "pass"})
+	env = newEnv(t, b2, "diff", "new", nil)
+	fs, _ = EvaluatePhase(env, "plan")
+	if f, ok := findingIDs(fs)["plan.verification-strategy"]; ok {
+		t.Errorf("one AC with a strategy must pass: %s", f.Detail)
+	}
+	fs, _ = EvaluatePhase(env, "verify")
+	if f, ok := findingIDs(fs)["verify.ac-verdicts"]; ok {
+		t.Errorf("one AC with a verdict must pass: %s", f.Detail)
+	}
+}
+
+// The C10 fix: depth items demand ≥3 elements, waivable as the escape.
+func TestMinContentDepthItems(t *testing.T) {
+	b := &envBuilder{}
+	b.add("context-map", false, map[string]any{"entries": []any{"a.go"}, "sufficiency": "ok"})
+	env := newEnv(t, b, "diff", "new", nil)
+	fs, _ := EvaluatePhase(env, "context")
+	f, ok := findingIDs(fs)["context.map-depth"]
+	if !ok {
+		t.Fatal("one-entry map must fail the depth floor")
+	}
+	if !f.Waivable || !contains(f.Detail, "min") {
+		t.Errorf("depth finding must be waivable and name the floor: %+v", f)
+	}
+	if _, ok := findingIDs(fs)["context.map"]; ok {
+		t.Error("existence item must still pass — only depth fails")
+	}
+	// three entries clear it
+	b.add("context-map", false, map[string]any{"entries": []any{"b.go", "b_test.go"}, "sufficiency": "ok"})
+	env = newEnv(t, b, "diff", "new", nil)
+	fs, _ = EvaluatePhase(env, "context")
+	if _, ok := findingIDs(fs)["context.map-depth"]; ok {
+		t.Error("3 entries across maps must satisfy the floor")
+	}
+	// completeness depth mirrors it
+	b2 := &envBuilder{}
+	b2.add("completeness", false, map[string]any{"items": []any{map[string]any{"case": "empty", "disposition": "ok"}}})
+	env = newEnv(t, b2, "diff", "new", nil)
+	fs, _ = EvaluatePhase(env, "frame")
+	if _, ok := findingIDs(fs)["frame.completeness-depth"]; !ok {
+		t.Error("one-case completeness must fail the depth floor")
+	}
+	b2.add("waiver", false, map[string]any{"item": "frame.completeness-depth", "reason": "single toggle flip, no negative space"})
+	env = newEnv(t, b2, "diff", "new", nil)
+	fs, _ = EvaluatePhase(env, "frame")
+	if _, ok := findingIDs(fs)["frame.completeness-depth"]; ok {
+		t.Error("waiver must clear the depth item")
+	}
+}
+
+// Red→green pairing (the order-only hole): cross-runner pairs never satisfy
+// the predicate; same-runner selector mismatches pass weakly and are
+// surfaced via WeakRedGreenTasks.
+func TestRedGreenPairing(t *testing.T) {
+	// cross-runner: gitleaks red + pytest green must NOT pass
+	b := &envBuilder{}
+	b.add("task", false, map[string]any{"tid": "T-1", "subject": "s", "dod": []any{"d"}, "status": "done"})
+	b.add("test-run", true, map[string]any{"cmd": "gitleaks detect", "exit": 1, "grounded": true, "task": "T-1"})
+	b.add("test-run", true, map[string]any{"cmd": "pytest", "exit": 0, "grounded": true, "task": "T-1"})
+	env := newEnv(t, b, "diff", "new", nil)
+	ok, detail, _ := evalPredicate(env, spec.PredRedGreen, map[string]any{"link": "task"}, "T-1")
+	if ok {
+		t.Fatal("cross-runner red→green must not pass")
+	}
+	if !contains(detail, "runner") {
+		t.Errorf("detail should explain the runner mismatch: %q", detail)
+	}
+	// red on a selector, green on the full suite: strict
+	b2 := &envBuilder{}
+	b2.add("task", false, map[string]any{"tid": "T-2", "subject": "s", "dod": []any{"d"}, "status": "done"})
+	b2.add("test-run", true, map[string]any{"cmd": "pytest tests/test_x.py::test_new", "exit": 1, "grounded": true, "task": "T-2"})
+	b2.add("test-run", true, map[string]any{"cmd": "pytest", "exit": 0, "grounded": true, "task": "T-2"})
+	env = newEnv(t, b2, "diff", "new", nil)
+	if ok, _, _ := evalPredicate(env, spec.PredRedGreen, map[string]any{"link": "task"}, "T-2"); !ok {
+		t.Error("selector red + full-suite green must pass strictly")
+	}
+	if weak := WeakRedGreenTasks(env); len(weak) != 0 {
+		t.Errorf("strict pair must not be reported weak: %v", weak)
+	}
+	// same runner, diverging selectors: weak pass, surfaced
+	b3 := &envBuilder{}
+	b3.add("task", false, map[string]any{"tid": "T-3", "subject": "s", "dod": []any{"d"}, "status": "done"})
+	b3.add("test-run", true, map[string]any{"cmd": "pytest tests/test_x.py", "exit": 1, "grounded": true, "task": "T-3"})
+	b3.add("test-run", true, map[string]any{"cmd": "pytest tests/test_y.py", "exit": 0, "grounded": true, "task": "T-3"})
+	env = newEnv(t, b3, "diff", "new", nil)
+	if ok, _, _ := evalPredicate(env, spec.PredRedGreen, map[string]any{"link": "task"}, "T-3"); !ok {
+		t.Error("same-runner selector mismatch must weak-pass (no wedge)")
+	}
+	weak := WeakRedGreenTasks(env)
+	if len(weak) != 1 || weak[0] != "T-3" {
+		t.Errorf("weak pair must be surfaced: %v", weak)
+	}
+}
+
+// A manual verdict for a gating agent must not satisfy the contract while
+// verdict capture is provably alive; a disposition is the recorded escape.
+func TestManualGatingVerdictRefusedWhileCaptureAlive(t *testing.T) {
+	// hooks dead (no auto verdict anywhere): manual records keep working
+	b := &envBuilder{}
+	b.add("verdict", false, map[string]any{"agent": "critic", "status": "safe", "criticals": 0, "majors": 0})
+	env := newEnv(t, b, "diff", "new", nil)
+	fs, _ := EvaluatePhase(env, "design")
+	if _, ok := findingIDs(fs)["design.critic"]; ok {
+		t.Fatal("degraded-hooks session: manual verdict must still satisfy")
+	}
+	// capture alive (an auto verdict exists): the manual one is refused
+	b2 := &envBuilder{}
+	b2.add("verdict", true, map[string]any{"agent": "design-reviewer", "status": "clean", "criticals": 0, "majors": 0})
+	manualID := b2.add("verdict", false, map[string]any{"agent": "critic", "status": "safe", "criticals": 0, "majors": 0})
+	env = newEnv(t, b2, "diff", "new", nil)
+	fs, _ = EvaluatePhase(env, "design")
+	f, ok := findingIDs(fs)["design.critic"]
+	if !ok {
+		t.Fatal("manual gating verdict must be refused while capture is alive")
+	}
+	if !contains(f.Detail, "self-attested") {
+		t.Errorf("detail should explain: %q", f.Detail)
+	}
+	// disposition referencing the manual verdict is the escape
+	b2.add("disposition", false, map[string]any{"ref": manualID, "text": "critic ran outside wf: namespace; transcript reviewed with user"})
+	env = newEnv(t, b2, "diff", "new", nil)
+	fs, _ = EvaluatePhase(env, "design")
+	if _, ok := findingIDs(fs)["design.critic"]; ok {
+		t.Error("dispositioned manual verdict must satisfy")
+	}
+	// non-gating agents (researcher) are unaffected
+	b3 := &envBuilder{}
+	b3.add("verdict", true, map[string]any{"agent": "design-reviewer", "status": "clean", "criticals": 0, "majors": 0})
+	b3.add("verdict", false, map[string]any{"agent": "researcher", "status": "n/a", "criticals": 0, "majors": 0, "reason": "no research ran"})
+	env = newEnv(t, b3, "diff", "new", nil)
+	fs, _ = EvaluatePhase(env, "context")
+	if _, ok := findingIDs(fs)["context.research-grounded"]; ok {
+		t.Error("non-gating manual verdict must remain acceptable")
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 || indexOf(s, sub) >= 0)
 }

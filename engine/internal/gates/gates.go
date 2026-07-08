@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/cmdid"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/contracts"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/hookio"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/runctl"
@@ -333,6 +334,7 @@ type parsedVerdict struct {
 	status            string
 	criticals, majors int
 	scope             string
+	reason            string
 	ok                bool
 }
 
@@ -358,9 +360,14 @@ func parseVerdict(text string) parsedVerdict {
 			fmt.Sscanf(val, "%d", &v.majors)
 		case "scope":
 			v.scope = val
+		case "reason":
+			v.reason = val
 		}
 	}
-	v.ok = v.status != "" && v.criticals >= 0 && v.majors >= 0
+	// n/a self-attests inapplicability — a reasonless n/a is not a verdict
+	// (the agent prose always demanded the reason; now the parse does too)
+	v.ok = v.status != "" && v.criticals >= 0 && v.majors >= 0 &&
+		(v.status != "n/a" || v.reason != "")
 	return v
 }
 
@@ -368,7 +375,7 @@ type verdictAttempts struct {
 	Attempts map[string]int `json:"attempts"` // agent_id -> blocks so far
 }
 
-const verdictBlockFormat = "The verdict is machine-parsed and required. End the final message with exactly:\n```verdict\nstatus: <clean|changes-required|safe|risky|unsafe|n/a>\ncriticals: <int>\nmajors: <int>\nscope: <assigned mode/lens, if any>\n```"
+const verdictBlockFormat = "The verdict is machine-parsed and required. End the final message with exactly:\n```verdict\nstatus: <clean|changes-required|safe|risky|unsafe|n/a>\ncriticals: <int>\nmajors: <int>\nscope: <assigned mode/lens, if any>\nreason: <required for n/a — one line: why this review does not apply>\n```"
 
 // Verdict anchors verdict capture at SubagentStop: it blocks the reviewer
 // until a parseable block is emitted (2 attempts), then records `unparsed`
@@ -415,6 +422,9 @@ func Verdict(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	}
 	if scope != "" {
 		data["scope"] = scope
+	}
+	if pv.reason != "" {
+		data["reason"] = pv.reason
 	}
 	ev, err := c.Record("verdict", data, true, "hook")
 	if err != nil {
@@ -734,23 +744,7 @@ func matchHead(head, rh string) bool {
 	return head == rh || strings.HasPrefix(head, rh+" ") || strings.HasPrefix(head, rh+":")
 }
 
-// generic interpreters/launchers whose bare name proves nothing about
-// testing — a strategy of `python3 test_app.py` must learn that exact
-// two-token invocation, never bare `python3` (or every script run would
-// count as red/green evidence).
-var genericInterpreters = map[string]bool{
-	"python": true, "python3": true, "python2": true, "py": true,
-	"node": true, "deno": true, "bun": true, "ruby": true, "perl": true,
-	"php": true, "sh": true, "bash": true, "zsh": true, "dash": true,
-	"pwsh": true, "powershell": true, "java": true, "dotnet": true,
-	"go": true, "cargo": true, "npx": true, "uv": true, "uvx": true,
-	"make": true, "npm": true, "pnpm": true, "yarn": true,
-}
-
 var filterPipe = regexp.MustCompile(`\|\s*(grep|head|tail|awk|sed|rg)\b`)
-
-// leadingCd matches exactly one `cd <dir> &&` prefix (quoted dirs included).
-var leadingCd = regexp.MustCompile(`^cd\s+("[^"]*"|'[^']*'|[^\s&|;]+)\s*&&\s*(.+)$`)
 
 // CaptureTest turns recognized runner invocations into grounded test-run
 // records. Rules (G1): match the head only, skip wf self-calls, treat
@@ -773,10 +767,7 @@ func CaptureTest(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	// honor (it drove users toward the config-runners escape): strip ONE
 	// leading cd for recognition and grounding. Honest bound: a failing cd
 	// reports its own exit — a false red at worst, never a false green.
-	effective := cmd
-	if m := leadingCd.FindStringSubmatch(cmd); m != nil {
-		effective = strings.TrimSpace(m[2])
-	}
+	effective := cmdid.Effective(cmd)
 	head := commandHead(effective)
 	var category, ac string
 	matched := false
@@ -930,68 +921,13 @@ func strategyMatch(env *contracts.Env, head string) (bool, string) {
 	return false, ""
 }
 
-// tokenPrefix: the shorter command is a whole-token prefix of the longer,
-// sharing at least 2 tokens — so `python3 test_app.py` matches strategy
-// `python3 test_app.py -v`, but a bare interpreter never matches anything.
-func tokenPrefix(a, b []string) bool {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	if n < 2 {
-		return false
-	}
-	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// learnedHead extracts the runner-invocation head from a verification
-// command: tokens up to the first selector (path / dotted test id / pytest
-// `::`) or flag, keeping interpreter module flags (`python -m unittest`).
-// A single-token head that is a generic interpreter is discarded — tier 1's
-// exact matching still covers `python3 test_app.py`-style strategies.
-func learnedHead(cmd string) string {
-	fields := strings.Fields(commandHead(cmd))
-	var head []string
-	for i, tok := range fields {
-		if strings.ContainsAny(tok, "/\\.") || strings.Contains(tok, "::") {
-			break
-		}
-		if strings.HasPrefix(tok, "-") {
-			if tok == "-m" && i == 1 {
-				head = append(head, tok)
-				continue
-			}
-			break
-		}
-		head = append(head, tok)
-		if len(head) == 4 {
-			break
-		}
-	}
-	if len(head) == 0 || (len(head) == 1 && genericInterpreters[head[0]]) {
-		return ""
-	}
-	// a dangling module flag proves nothing either ("python3 -m")
-	if head[len(head)-1] == "-m" {
-		return ""
-	}
-	return strings.Join(head, " ")
-}
-
-// commandHead strips leading env assignments and returns the command's start.
-func commandHead(cmd string) string {
-	fields := strings.Fields(cmd)
-	i := 0
-	for i < len(fields) && strings.Contains(fields[i], "=") && !strings.HasPrefix(fields[i], "=") {
-		i++
-	}
-	return strings.Join(fields[i:], " ")
-}
+// tokenPrefix, learnedHead and commandHead moved to the shared cmdid
+// package (contracts needs the same command-identity reasoning for
+// red→green pairing and must not import gates). Thin aliases keep the
+// call sites readable.
+func tokenPrefix(a, b []string) bool { return cmdid.TokenPrefix(a, b) }
+func learnedHead(cmd string) string  { return cmdid.LearnedHead(cmd) }
+func commandHead(cmd string) string  { return cmdid.Head(cmd) }
 
 // commandExit resolves the exit code from the DOCUMENTED hook event
 // semantics (the four-TestRepo-runs discovery): the Bash tool_response

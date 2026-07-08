@@ -59,6 +59,10 @@ type RunSignals struct {
 	UngroundedTestRuns int      `json:"ungrounded_test_runs"`
 	ACPasses           int      `json:"ac_passes"`
 	UngroundedACs      []string `json:"ungrounded_acs,omitempty"` // pass without a grounded green tagged to the AC
+	// tasks whose red→green pair is same-runner but selector-diverging —
+	// passes the gate, worth an auditor look (the green may not exercise
+	// what the red exercised)
+	WeakRedGreenTasks []string `json:"weak_red_green_tasks,omitempty"`
 
 	// lesson efficacy (03 §4.7)
 	LessonsProposed   int `json:"lessons_proposed"`
@@ -250,6 +254,7 @@ func runSignals(c *runctl.Ctl, runID string, archived bool) (*RunSignals, error)
 			s.UngroundedACs = append(s.UngroundedACs, ac)
 		}
 	}
+	s.WeakRedGreenTasks = contracts.WeakRedGreenTasks(env)
 	for _, w := range env.Records("waiver") {
 		s.Waivers++
 		if item, _ := w.Data["item"].(string); strings.HasPrefix(item, "lesson.") {
@@ -351,6 +356,9 @@ func renderConcerns(s RunSignals) string {
 	}
 	if s.LessonItemWaivers > 0 {
 		c = append(c, fmt.Sprintf("%d accepted lesson item(s) waived — lessons dodged", s.LessonItemWaivers))
+	}
+	if len(s.WeakRedGreenTasks) > 0 {
+		c = append(c, fmt.Sprintf("weakly-paired red→green on: %s (same runner, different selectors)", strings.Join(s.WeakRedGreenTasks, ", ")))
 	}
 	if len(c) == 0 {
 		return ""

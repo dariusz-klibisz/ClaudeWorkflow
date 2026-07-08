@@ -44,7 +44,9 @@ Rosters parallelize — spawn them together, they run in the background.
 
 artifact/assessment families: author the deliverable instead;
 `wf record artifact path=… status=present role=deliverable-report` (reports)
-and keep tasks gated the same way.
+and keep tasks gated the same way. Assessments: record findings as you make
+them (`wf record finding fid=F-1 severity=… text=…`) — Verify requires the
+report to name every recorded fid verbatim.
 
 `wf phase exit` when the contract is met (the Stop gate will keep pointing
 at what is missing).

@@ -152,7 +152,7 @@ func Agent(c *runctl.Ctl, agentName string) (string, error) {
 	}
 	if ag.Gating {
 		b.WriteString("The verdict is machine-parsed. The final message must end with exactly this fenced block:\n")
-		b.WriteString("```verdict\nstatus: <clean|changes-required|safe|risky|unsafe|n/a>\ncriticals: <int>\nmajors: <int>\nscope: <your assigned mode/lens, if any>\n```\n")
+		b.WriteString("```verdict\nstatus: <clean|changes-required|safe|risky|unsafe|n/a>\ncriticals: <int>\nmajors: <int>\nscope: <your assigned mode/lens, if any>\nreason: <required for n/a — one line: why this review does not apply>\n```\n")
 		b.WriteString("clean/safe require criticals=0 and majors=0; risky requires each concern listed for disposition; n/a needs one line of reason above the block.\n")
 	}
 	return b.String(), nil

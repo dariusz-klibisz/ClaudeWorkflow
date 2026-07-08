@@ -13,7 +13,12 @@ Contract first:
   note="…"`; open followups become tasks now or are carried
   (`wf record followup updates=<id> status=next-run`). Re-run `wf trace`
   until no finding is open
-- `@wf:auditor` verdict over the resolved trace (HIGH findings block close)
+- `@wf:auditor` verdict over the resolved trace (HIGH findings block close).
+  A real defect discovered here (auditor critical, a finding no disposition
+  honestly covers, approval drift) has an in-run remediation path:
+  `wf loop --ac <id-or-"-"> --cause audit --evidence "…"` re-opens Verify
+  (counts toward the run's loop cap; requires an open finding or a failing
+  audit) — loop rather than disposition-around when the work itself is wrong
 - diff/artifact: `wf trace --rtm --write` — generates the
   requirements-traceability matrix (`docs/requirements/RTM-<run>.md`):
   requirement → AC → verification → grounded evidence → verdict → tasks →

@@ -28,9 +28,14 @@ Contract first:
   re-measure clears it (manual `wf record metric` stays self-attested)
 - intent deploy: `wf record smoke-run cmd="…" exit=0 target="…"` +
   `wf record rollback-readiness --json '{"procedure":"…","trigger":"…"}'`
-- assessment: the findings report exists AND is authored on disk — create it
-  engine-mediated (`wf doc new review|research-findings|investigation-findings
-  --slug …` — these carry role=deliverable-report), author it, then flip:
+- assessment: record each finding as a structured record FIRST —
+  `wf record finding fid=F-1 severity=critical|major|minor|info text="…"
+  [evidence="…"]` (a genuinely clean assessment waives
+  `verify.findings-recorded` with the reason); the findings report exists
+  AND is authored on disk — create it engine-mediated
+  (`wf doc new review|research-findings|investigation-findings
+  --slug …` — these carry role=deliverable-report), author it naming every
+  recorded fid verbatim (the gate greps the file for each), then flip:
   `wf record artifact updates=<id> status=present` (present is refused while
   the file is missing or a stub);
   spawn `@wf:lens-reviewer` for the lens pass over the report;

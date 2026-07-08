@@ -49,6 +49,7 @@ status: <safe|risky|unsafe>
 criticals: <int>
 majors: <int>
 scope: <as injected, if any>
+reason: <required for n/a — one line: why this review does not apply>
 ```
 
 criticals = concerns that make the proposal wrong or dangerous;

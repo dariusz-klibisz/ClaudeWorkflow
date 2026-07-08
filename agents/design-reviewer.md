@@ -57,6 +57,7 @@ status: <clean|changes-required|n/a>
 criticals: <int>
 majors: <int>
 scope: <system|software, as injected>
+reason: <required for n/a — one line: why this review does not apply>
 ```
 
 clean requires criticals=0 and majors=0.

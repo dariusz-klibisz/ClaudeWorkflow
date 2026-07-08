@@ -72,6 +72,25 @@ func Trace(c *runctl.Ctl) (string, error) {
 			})
 		}
 	}
+	// approval drift — records added AFTER the gate's last approval bound
+	// its refs: the user approved a baseline that has since grown without
+	// re-approval (re-approving the gate binds the new refs; the finding
+	// then wants a disposition naming that re-approval)
+	for _, gate := range []string{"scope", "design", "plan"} {
+		approved := latestApprovedRefs(env, gate)
+		if approved == nil {
+			continue // gate never approved with bound refs — nothing to drift from
+		}
+		for _, ref := range contracts.ApprovalRefs(env, gate) {
+			if !approved[ref] {
+				wants = append(wants, want{
+					key:      "drift:" + gate + ":" + ref,
+					text:     fmt.Sprintf("approval drift: %s appeared after the last %s approval — re-approve the %s gate or disposition why it needs none", ref, gate, gate),
+					severity: "medium",
+				})
+			}
+		}
+	}
 
 	// idempotent write: only keys not yet recorded
 	existing := map[string]bool{}
@@ -157,6 +176,29 @@ func renderTrace(c *runctl.Ctl, r *store.Run, env *contracts.Env, created int) s
 		}
 	}
 	return b.String()
+}
+
+// latestApprovedRefs returns the ref set bound by the gate's newest
+// approval, or nil when the gate was never approved with bound refs
+// (approvals predating the refs feature carry none — no baseline, no drift).
+func latestApprovedRefs(env *contracts.Env, gate string) map[string]bool {
+	var refs map[string]bool
+	for _, a := range env.Records("approval") {
+		if g, _ := a.Data["gate"].(string); g != gate {
+			continue
+		}
+		raw, ok := a.Data["approved_refs"].([]any)
+		if !ok {
+			continue
+		}
+		refs = map[string]bool{}
+		for _, r := range raw {
+			if s, ok := r.(string); ok {
+				refs[s] = true
+			}
+		}
+	}
+	return refs
 }
 
 func has(xs []string, s string) bool {

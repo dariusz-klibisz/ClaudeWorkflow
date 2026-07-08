@@ -30,7 +30,9 @@ lists what is still missing, with commands):
     --json '{"acs":[{"id":"AC-1","text":"…","verifiable":true}]}'` — every AC
     must be verifiable in principle (name how)
   - `wf record completeness --json '{"items":[{"case":"empty input","disposition":"…"}]}'`
-    — the negative-space walk: error, empty, max, concurrent, unhappy paths
+    — the negative-space walk: error, empty, max, concurrent, unhappy paths.
+    The gate expects ≥3 dispositioned cases (`frame.completeness-depth`);
+    genuinely smaller spaces: waive it with the reason
   - spawn `@wf:adversary` (abuse-case mode) and `@wf:lens-reviewer`
     (security lens) on the framed requirements — their verdicts are captured
     automatically at completion

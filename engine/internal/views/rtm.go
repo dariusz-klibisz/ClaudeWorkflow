@@ -155,7 +155,35 @@ func RTM(c *runctl.Ctl) (string, error) {
 
 	fmt.Fprintf(&b, "---\n\nrequirements: %d · ACs: %d · with grounded green evidence: %d · verdict pass: %d · loops: %d · forces: %d\n",
 		len(reqs), totalACs, groundedACs, passACs, r.Loops, r.Forces)
+
+	// which baselines the user's approvals bound (engine-computed refs)
+	var bound []string
+	for _, gate := range []string{"scope", "design", "plan"} {
+		for _, a := range env.Records("approval") {
+			if g, _ := a.Data["gate"].(string); g != gate {
+				continue
+			}
+			if h, _ := a.Data["refs_hash"].(string); h != "" {
+				bound = append(bound, fmt.Sprintf("%s@%s", gate, h))
+			}
+		}
+	}
+	if len(bound) > 0 {
+		fmt.Fprintf(&b, "approval baselines (refs hash): %s\n", strings.Join(dedupeStr(bound), " · "))
+	}
 	return b.String(), nil
+}
+
+func dedupeStr(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func evidenceCell(greens, reds, manual int) string {

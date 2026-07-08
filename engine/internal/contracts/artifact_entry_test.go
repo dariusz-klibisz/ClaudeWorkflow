@@ -132,6 +132,44 @@ func TestArtifactPresentNoFilterMatchesAny(t *testing.T) {
 	}
 }
 
+// The mentions param: an authored report must name every recorded finding
+// id — findings that never reach the deliverable are a traceability leak.
+func TestArtifactPresentMentions(t *testing.T) {
+	dir := t.TempDir()
+	writeDoc(t, dir, "docs/reviews/r.md", authored+"\nFindings: F-1 auth bypass in login handler.\n")
+	b := &envBuilder{}
+	b.add("artifact", false, map[string]any{"path": "docs/reviews/r.md", "status": "present", "role": "deliverable-report"})
+	b.add("finding", false, map[string]any{"fid": "F-1", "severity": "critical", "text": "auth bypass"})
+	b.add("finding", false, map[string]any{"fid": "F-2", "severity": "minor", "text": "typo in error message"})
+	env := newEnv(t, b, "assessment", "code-review", nil)
+	env.ProjectDir = dir
+	params := map[string]any{"role": "deliverable-report", "mentions": map[string]any{"kind": "finding", "field": "fid"}}
+	ok, detail, err := EvalOne(env, "artifact-present", params, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("report missing F-2 must fail the mentions check")
+	}
+	if !strings.Contains(detail, "F-2") || strings.Contains(detail, "F-1,") {
+		t.Errorf("detail should name exactly the missing ids: %s", detail)
+	}
+	// naming both clears it
+	writeDoc(t, dir, "docs/reviews/r.md", authored+"\nFindings: F-1 auth bypass; F-2 error-message typo.\n")
+	ok, _, _ = EvalOne(env, "artifact-present", params, "")
+	if !ok {
+		t.Error("report naming every fid must pass")
+	}
+	// no findings recorded: mentions is vacuous, existence still enforced
+	b2 := &envBuilder{}
+	b2.add("artifact", false, map[string]any{"path": "docs/reviews/r.md", "status": "present", "role": "deliverable-report"})
+	env = newEnv(t, b2, "assessment", "code-review", nil)
+	env.ProjectDir = dir
+	if ok, _, _ := EvalOne(env, "artifact-present", params, ""); !ok {
+		t.Error("no recorded findings: the mentions check must be vacuous")
+	}
+}
+
 func TestArtifactPresentEmptyProjectDirVacuous(t *testing.T) {
 	b := &envBuilder{}
 	b.add("artifact", false, map[string]any{"path": "docs/x.md", "status": "present"})

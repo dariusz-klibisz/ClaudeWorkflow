@@ -3,9 +3,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "answer_ref": {},
+    "approved_refs": {},
     "challenge": {},
     "gate": {},
-    "payload_hash": {}
+    "payload_hash": {},
+    "refs_hash": {}
   },
   "required": [
     "gate"

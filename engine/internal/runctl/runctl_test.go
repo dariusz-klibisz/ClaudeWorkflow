@@ -74,7 +74,11 @@ func satisfyFrame(t *testing.T, c *Ctl) {
 	rec("ambiguity", map[string]any{"lens": "adversarial", "none": true, "disposition": "none"})
 	rec("requirement", map[string]any{"rid": "SWR-1", "level": "software", "text": "handle empty files", "status": "active",
 		"acs": []any{map[string]any{"id": "AC-1", "text": "empty file yields error msg", "verifiable": true}}})
-	rec("completeness", map[string]any{"items": []any{map[string]any{"case": "empty", "disposition": "covered"}}})
+	rec("completeness", map[string]any{"items": []any{
+		map[string]any{"case": "empty", "disposition": "covered"},
+		map[string]any{"case": "error", "disposition": "covered"},
+		map[string]any{"case": "max", "disposition": "n/a"},
+	}})
 	rec("verdict", map[string]any{"agent": "adversary", "scope": "abuse-case", "status": "clean", "criticals": 0, "majors": 0})
 	rec("verdict", map[string]any{"agent": "lens-reviewer", "scope": "security", "status": "clean", "criticals": 0, "majors": 0})
 	rec("origin", map[string]any{"attribution": "introduced in abc123"})
@@ -181,6 +185,56 @@ func TestLoopCaps(t *testing.T) {
 	}
 }
 
+// Ship-stage discoveries loop back to Verify (cause=audit) instead of
+// dispositions-or-nothing — but only with grounds (open finding / failing
+// audit) and never as a phase-order escape.
+func TestShipAuditLoop(t *testing.T) {
+	c := newCtl(t)
+	r, _ := c.RunStart("diff", "fix")
+	r.Phase = "ship"
+	r.ExitedPh = []string{"frame", "context", "design", "plan", "build", "verify"}
+	_ = c.Store.SaveRun(r)
+	// no grounds: refused
+	if _, err := c.Loop("AC-1", "audit", "auditor found the RTM contradicts the diff"); err == nil {
+		t.Fatal("audit loop without grounds must be refused")
+	}
+	// a clean audit is not grounds
+	if _, err := c.Record("verdict", map[string]any{"agent": "auditor", "status": "clean", "criticals": 0, "majors": 0}, true, "hook"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Loop("AC-1", "audit", "e"); err == nil {
+		t.Fatal("clean latest audit must not ground a loop")
+	}
+	// a failing LATEST audit is grounds
+	if _, err := c.Record("verdict", map[string]any{"agent": "auditor", "status": "changes-required", "criticals": 1, "majors": 0}, true, "hook"); err != nil {
+		t.Fatal(err)
+	}
+	target, err := c.Loop("AC-1", "audit", "auditor critical: delivery artifact contradicts verified state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != "verify" {
+		t.Fatalf("audit loop must target verify, got %s", target)
+	}
+	r, _ = c.Store.LoadRun()
+	if r.Phase != "verify" || r.Loops != 1 || contains(r.ExitedPh, "verify") {
+		t.Fatalf("loop state wrong: %+v", r)
+	}
+	// slip/design/plan causes still refuse from ship
+	r.Phase = "ship"
+	_ = c.Store.SaveRun(r)
+	if _, err := c.Loop("AC-1", "slip", "e"); err == nil {
+		t.Fatal("slip cause must not loop from ship")
+	}
+	// audit cause refuses from verify
+	r, _ = c.Store.LoadRun()
+	r.Phase = "verify"
+	_ = c.Store.SaveRun(r)
+	if _, err := c.Loop("AC-1", "audit", "e"); err == nil {
+		t.Fatal("audit cause must not loop from verify")
+	}
+}
+
 func TestACVerdictGrounding(t *testing.T) {
 	c := newCtl(t)
 	_, _ = c.RunStart("diff", "fix")
@@ -204,6 +258,125 @@ func TestACVerdictGrounding(t *testing.T) {
 	}
 }
 
+// The AC-less-requirement hole: a requirement without ACs vacuously passed
+// every downstream per-AC item. Refused at write time now.
+func TestRequirementRequiresACs(t *testing.T) {
+	c := newCtl(t)
+	_, _ = c.RunStart("diff", "fix")
+	base := map[string]any{"rid": "SWR-1", "level": "software", "text": "t", "status": "active"}
+	with := func(acs any) map[string]any {
+		d := map[string]any{}
+		for k, v := range base {
+			d[k] = v
+		}
+		d["acs"] = acs
+		return d
+	}
+	if _, err := c.Record("requirement", with([]any{}), false, "agent"); err == nil {
+		t.Fatal("empty acs must be refused")
+	}
+	if _, err := c.Record("requirement", with([]any{map[string]any{"text": "no id"}}), false, "agent"); err == nil {
+		t.Fatal("AC without id must be refused")
+	}
+	if _, err := c.Record("requirement", with([]any{"  "}), false, "agent"); err == nil {
+		t.Fatal("blank string AC must be refused")
+	}
+	// string ACs and {id,text} objects are both fine
+	ev, err := c.Record("requirement", with([]any{"AC-1: empty file yields error"}), false, "agent")
+	if err != nil {
+		t.Fatalf("string AC refused: %v", err)
+	}
+	// an update that doesn't touch acs (Context baseline status flip) passes
+	if _, err := c.Record("requirement", map[string]any{"updates": ev.ID, "status": "dropped"}, false, "agent"); err != nil {
+		t.Fatalf("acs-less update refused: %v", err)
+	}
+	// an update that empties acs is refused
+	if _, err := c.Record("requirement", map[string]any{"updates": ev.ID, "acs": []any{}}, false, "agent"); err == nil {
+		t.Fatal("update emptying acs must be refused")
+	}
+}
+
+// Judgment records get structural floors at write time (the C10 class).
+func TestJudgmentRecordWriteValidation(t *testing.T) {
+	c := newCtl(t)
+	_, _ = c.RunStart("diff", "fix")
+	if _, err := c.Record("context-map", map[string]any{"entries": []any{}, "sufficiency": "ok"}, false, "agent"); err == nil {
+		t.Fatal("empty context-map entries must be refused")
+	}
+	if _, err := c.Record("context-map", map[string]any{"entries": []any{"a.go"}, "sufficiency": "  "}, false, "agent"); err == nil {
+		t.Fatal("blank sufficiency must be refused")
+	}
+	if _, err := c.Record("context-map", map[string]any{"entries": []any{"a.go"}, "sufficiency": "ok"}, false, "agent"); err != nil {
+		t.Fatalf("valid context-map refused: %v", err)
+	}
+	if _, err := c.Record("completeness", map[string]any{"items": []any{}}, false, "agent"); err == nil {
+		t.Fatal("empty completeness must be refused")
+	}
+	if _, err := c.Record("completeness", map[string]any{"items": []any{map[string]any{"case": "empty"}}}, false, "agent"); err == nil {
+		t.Fatal("dispositionless completeness item must be refused")
+	}
+	if _, err := c.Record("completeness", map[string]any{"items": []any{map[string]any{"case": "empty", "disposition": "covered"}}}, false, "agent"); err != nil {
+		t.Fatalf("valid completeness refused: %v", err)
+	}
+}
+
+// 03 §4.3: a rejected option may never be re-proposed — now engine-checked.
+func TestOptionSetRejectedCrossCheck(t *testing.T) {
+	c := newCtl(t)
+	_, _ = c.RunStart("diff", "new")
+	set := func(stage, selected string, rejected ...string) map[string]any {
+		var rej []any
+		for _, r := range rejected {
+			rej = append(rej, map[string]any{"id": r, "reason": "priced out"})
+		}
+		return map[string]any{"stage": stage, "candidates": []any{"a", "b", "c"},
+			"selected": selected, "rejected": rej}
+	}
+	if _, err := c.Record("option-set", map[string]any{"stage": "system", "candidates": []any{"only-one"},
+		"selected": "only-one", "rejected": []any{}}, false, "agent"); err == nil {
+		t.Fatal("single-candidate option-set must be refused")
+	}
+	if _, err := c.Record("option-set", set("bogus-stage", "a", "b"), false, "agent"); err == nil {
+		t.Fatal("unknown stage must be refused")
+	}
+	first, err := c.Record("option-set", set("system", "a", "b", "c"), false, "agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// loop re-entry re-proposing a rejected option: refused
+	if _, err := c.Record("option-set", set("system", "b"), false, "agent"); err == nil {
+		t.Fatal("re-selecting a rejected option must be refused")
+	}
+	// a different stage may reuse the id space
+	if _, err := c.Record("option-set", set("software", "b", "a"), false, "agent"); err != nil {
+		t.Fatalf("other-stage selection wrongly blocked: %v", err)
+	}
+	// a disposition referencing the rejecting set is the recorded escape
+	if _, err := c.Record("disposition", map[string]any{"ref": first.ID, "text": "constraint lifted: managed service now approved"}, false, "agent"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Record("option-set", set("system", "b", "a"), false, "agent"); err != nil {
+		t.Fatalf("dispositioned rejection must release the option: %v", err)
+	}
+}
+
+func TestFindingWriteValidation(t *testing.T) {
+	c := newCtl(t)
+	_, _ = c.RunStart("assessment", "code-review")
+	if _, err := c.Record("finding", map[string]any{"fid": " ", "severity": "major", "text": "t"}, false, "agent"); err == nil {
+		t.Fatal("blank fid must be refused")
+	}
+	if _, err := c.Record("finding", map[string]any{"fid": "F-1", "severity": "catastrophic", "text": "t"}, false, "agent"); err == nil {
+		t.Fatal("unknown severity must be refused")
+	}
+	if _, err := c.Record("finding", map[string]any{"fid": "F-1", "severity": "major", "text": ""}, false, "agent"); err == nil {
+		t.Fatal("empty text must be refused")
+	}
+	if _, err := c.Record("finding", map[string]any{"fid": "F-1", "severity": "major", "text": "auth bypass", "evidence": "poc"}, false, "agent"); err != nil {
+		t.Fatalf("valid finding refused: %v", err)
+	}
+}
+
 func TestVerdictWriteValidation(t *testing.T) {
 	c := newCtl(t)
 	_, _ = c.RunStart("diff", "fix")
@@ -222,6 +395,13 @@ func TestVerdictWriteValidation(t *testing.T) {
 	// unknown status refused
 	if _, err := c.Record("verdict", map[string]any{"agent": "critic", "status": "lgtm", "criticals": 0, "majors": 0}, false, "agent"); err == nil {
 		t.Fatal("unknown verdict status must be refused")
+	}
+	// n/a requires a reason (manual and auto alike)
+	if _, err := c.Record("verdict", map[string]any{"agent": "ux-reviewer", "status": "n/a", "criticals": 0, "majors": 0}, false, "agent"); err == nil {
+		t.Fatal("reasonless n/a must be refused")
+	}
+	if _, err := c.Record("verdict", map[string]any{"agent": "ux-reviewer", "status": "n/a", "criticals": 0, "majors": 0, "reason": "no UI in this diff"}, false, "agent"); err != nil {
+		t.Fatalf("reasoned n/a refused: %v", err)
 	}
 }
 
@@ -243,7 +423,7 @@ func TestPhaseWaiveDesignForDiff(t *testing.T) {
 			t.Fatalf("%s: %v", kind, err)
 		}
 	}
-	rec("context-map", map[string]any{"entries": []any{"pkg/reader.go"}, "sufficiency": "single file change"})
+	rec("context-map", map[string]any{"entries": []any{"pkg/reader.go", "pkg/reader_test.go", "cmd/main.go (caller)"}, "sufficiency": "single file change"})
 	rec("reclassify", map[string]any{"result": "confirmed"})
 	rec("waiver", map[string]any{"item": "context.research-grounded", "reason": "no research"})
 	_, _ = c.Approve("scope", "scope ok")
@@ -387,6 +567,41 @@ func TestApproveAnchoring(t *testing.T) {
 	}
 	if _, ok := ev.Data["answer_ref"]; ok {
 		t.Fatal("stale answer must not anchor a later re-approval")
+	}
+}
+
+// Approvals bind engine-computed refs — what the "yes" was a yes to.
+func TestApproveBindsRefs(t *testing.T) {
+	c := newCtl(t)
+	_, _ = c.RunStart("diff", "fix")
+	rec := func(kind string, data map[string]any) {
+		t.Helper()
+		if _, err := c.Record(kind, data, false, "agent"); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+	}
+	rec("requirement", map[string]any{"rid": "SWR-1", "level": "software", "text": "t", "status": "active",
+		"acs": []any{map[string]any{"id": "AC-1", "text": "a", "verifiable": true}}})
+	rec("assumption", map[string]any{"text": "prod db reachable", "high_risk": true})
+	rec("assumption", map[string]any{"text": "low-risk detail", "high_risk": false})
+	ev, err := c.Approve("scope", "presented")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs, _ := ev.Data["approved_refs"].([]any)
+	if len(refs) != 2 {
+		t.Fatalf("scope approval must bind the requirement + high-risk assumption, got %v", refs)
+	}
+	if h, _ := ev.Data["refs_hash"].(string); h == "" {
+		t.Error("refs_hash missing")
+	}
+	// frame approvals bind nothing (no content baseline) — no refs field
+	ev, err = c.Approve("frame", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ev.Data["approved_refs"]; ok {
+		t.Error("frame approval must not carry refs")
 	}
 }
 

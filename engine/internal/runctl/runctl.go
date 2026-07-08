@@ -293,28 +293,38 @@ func (c *Ctl) PhaseWaive(phase, reason string) error {
 }
 
 // Loop re-opens a target phase from verify with engine-enforced caps (03 §6).
+// A ship-stage loop (spec loops.ship) re-opens Verify on audit-cause
+// discoveries — dispositions were the only remedy for a defect the auditor
+// found after Verify exited.
 func (c *Ctl) Loop(ac, cause, evidence string) (string, error) {
 	r, err := c.MustRun()
 	if err != nil {
 		return "", err
 	}
 	lp := c.Spec.Loops
-	if r.Phase != lp.From {
-		return "", fmt.Errorf("loops start from %s (current phase %s)", lp.From, r.Phase)
-	}
 	var target string
-	switch cause {
-	case "slip":
-		target = "build"
-	case "design":
-		target = "design"
-	case "plan":
-		target = "plan"
-	default:
-		return "", fmt.Errorf("cause must be slip|design|plan")
-	}
-	if !contains(lp.Targets, target) {
-		return "", fmt.Errorf("target %s not a legal loop target", target)
+	if lp.Ship != nil && r.Phase == "ship" && contains(lp.Ship.Causes, cause) {
+		if err := c.shipLoopGrounds(r); err != nil {
+			return "", err
+		}
+		target = lp.Ship.Target
+	} else {
+		if r.Phase != lp.From {
+			return "", fmt.Errorf("loops start from %s (current phase %s)", lp.From, r.Phase)
+		}
+		switch cause {
+		case "slip":
+			target = "build"
+		case "design":
+			target = "design"
+		case "plan":
+			target = "plan"
+		default:
+			return "", fmt.Errorf("cause must be slip|design|plan (or audit, from ship)")
+		}
+		if !contains(lp.Targets, target) {
+			return "", fmt.Errorf("target %s not a legal loop target", target)
+		}
 	}
 	if strings.TrimSpace(evidence) == "" {
 		return "", errors.New("loop requires --evidence (discriminating: observed vs expected)")
@@ -344,6 +354,35 @@ func (c *Ctl) Loop(ac, cause, evidence string) (string, error) {
 	r.ExitedPh = remove(r.ExitedPh, target)
 	r.Phase = target
 	return target, c.Store.SaveRun(r)
+}
+
+// shipLoopGrounds: an audit loop must have something at Ship to loop ON —
+// a failing auditor verdict or an open trace-finding. Without grounds the
+// loop is a phase-order escape, not a remediation.
+func (c *Ctl) shipLoopGrounds(r *store.Run) error {
+	env, err := c.Env(r)
+	if err != nil {
+		return err
+	}
+	for _, tf := range env.Records("trace-finding") {
+		if s, _ := tf.Data["status"].(string); s == "open" {
+			return nil
+		}
+	}
+	last := ""
+	for _, v := range env.Records("verdict") {
+		if a, _ := v.Data["agent"].(string); a == "auditor" {
+			last, _ = v.Data["status"].(string)
+		}
+	}
+	if c.Spec != nil {
+		for _, f := range c.Spec.Verdicts.Fail {
+			if last == f {
+				return nil // the LATEST audit failed — grounds to loop
+			}
+		}
+	}
+	return errors.New("nothing at ship to loop on: no open trace-finding and no failing auditor verdict (wf trace first)")
 }
 
 // Park is the always-available honest stop; it clears every sequencing gate.
@@ -441,6 +480,55 @@ func (c *Ctl) validateRecord(r *store.Run, kind string, data map[string]any, aut
 				return err
 			}
 		}
+	case "requirement":
+		// AC-less requirements vacuously satisfied every downstream per-AC
+		// item (strategy, ac-verdict, red-green) — the sharpest hole in the
+		// "built the right thing" chain. Refuse them at write time. Updates
+		// that don't touch acs (status flips at Context baseline) pass.
+		if acs, present := data["acs"]; present {
+			if err := validateACs(acs); err != nil {
+				rid, _ := data["rid"].(string)
+				return fmt.Errorf("requirement %s: %v (--ac \"AC-1: …\" or acs=[{id,text}])", rid, err)
+			}
+		}
+	case "context-map":
+		// judgment records used to be existence-checked only — an empty map
+		// was a checkbox. Structural floor here; the depth floor (≥N
+		// entries) is the waivable context.map-depth contract item.
+		if entries, present := data["entries"]; present {
+			if raw, ok := entries.([]any); !ok || len(raw) == 0 {
+				return errors.New("context-map requires at least one entry")
+			}
+		}
+		if s, present := data["sufficiency"]; present {
+			if str, _ := s.(string); strings.TrimSpace(str) == "" {
+				return errors.New("context-map requires a non-empty sufficiency judgment")
+			}
+		}
+	case "completeness":
+		if items, present := data["items"]; present {
+			raw, ok := items.([]any)
+			if !ok || len(raw) == 0 {
+				return errors.New("completeness requires at least one case")
+			}
+			for i, el := range raw {
+				m, ok := el.(map[string]any)
+				if !ok {
+					return fmt.Errorf("completeness item %d must be {case, disposition}", i+1)
+				}
+				cs, _ := m["case"].(string)
+				disp, _ := m["disposition"].(string)
+				if strings.TrimSpace(cs) == "" || strings.TrimSpace(disp) == "" {
+					return fmt.Errorf("completeness item %d needs both case and disposition", i+1)
+				}
+			}
+		}
+	case "option-set":
+		// 03 §4.3 promised "the engine cross-checks rejected IDs — never
+		// re-proposed"; until now only design-reviewer prose enforced it.
+		if err := c.validateOptionSet(r, data); err != nil {
+			return err
+		}
 	case "verdict":
 		// agent must be a roster name (scoped "wf:" prefixes are normalized;
 		// unknown names silently failed contracts in the power5 run)
@@ -469,6 +557,14 @@ func (c *Ctl) validateRecord(r *store.Run, kind string, data map[string]any, aut
 				data["downgraded"] = true
 			} else {
 				return fmt.Errorf("%s verdict with criticals=%v majors=%v is contradictory", status, crit, maj)
+			}
+		}
+		// n/a self-attests inapplicability: the reason is part of the
+		// verdict (agent prose always demanded it; the SubagentStop gate
+		// blocks reasonless auto n/a before it ever reaches here)
+		if status == "n/a" {
+			if s, _ := data["reason"].(string); strings.TrimSpace(s) == "" {
+				return errors.New("n/a verdict requires reason=\"why this review does not apply\"")
 			}
 		}
 	case "ac-verdict":
@@ -501,6 +597,22 @@ func (c *Ctl) validateRecord(r *store.Run, kind string, data map[string]any, aut
 				if v := numOr(data["value"], -1); v >= 0 {
 					data["below_threshold"] = v < th
 				}
+			}
+		}
+	case "finding":
+		if fid, _ := data["fid"].(string); strings.TrimSpace(fid) == "" {
+			return errors.New("finding requires a non-empty fid (it must appear verbatim in the report)")
+		}
+		if sev, present := data["severity"]; present {
+			switch sev {
+			case "critical", "major", "minor", "info":
+			default:
+				return fmt.Errorf("finding severity must be critical|major|minor|info, got %q", sev)
+			}
+		}
+		if txt, present := data["text"]; present {
+			if s, _ := txt.(string); strings.TrimSpace(s) == "" {
+				return errors.New("finding requires non-empty text")
 			}
 		}
 	case "waiver":
@@ -623,6 +735,18 @@ func (c *Ctl) Approve(gate, payload string) (*store.Event, error) {
 		mode, _ = c.Config.ConfigFlag("approvals").(string)
 	}
 	if env, err := c.Env(r); err == nil {
+		// bind the approval to WHAT is being approved: the engine computes
+		// the record identities in scope right now (requirement rids,
+		// selected options, task tids…) — the agent-supplied payload was a
+		// free string proving nothing. Trace re-computes and reports drift.
+		if refs := contracts.ApprovalRefs(env, gate); len(refs) > 0 {
+			anyRefs := make([]any, len(refs)) // JSON round-trip shape
+			for i, ref := range refs {
+				anyRefs[i] = ref
+			}
+			data["approved_refs"] = anyRefs
+			data["refs_hash"] = fmt.Sprintf("%x", hash(strings.Join(refs, "\n")))
+		}
 		lastApproval := -1
 		for _, a := range env.Records("approval") {
 			if g, _ := a.Data["gate"].(string); g == gate && a.Order > lastApproval {
@@ -693,6 +817,105 @@ func (c *Ctl) Approve(gate, payload string) (*store.Event, error) {
 // WaiveItem records a contract-item (or per-each element) waiver.
 func (c *Ctl) WaiveItem(item, reason string) (*store.Event, error) {
 	return c.Record("waiver", map[string]any{"item": item, "reason": reason}, false, "user")
+}
+
+// validateOptionSet enforces genuine option evaluation at write time:
+// a known stage, ≥2 candidates, a non-empty selection — and the selection
+// must not be an option a prior option-set of the same stage REJECTED,
+// unless a disposition references that prior record (the recorded escape
+// when a rejection genuinely no longer holds).
+func (c *Ctl) validateOptionSet(r *store.Run, data map[string]any) error {
+	if stage, present := data["stage"]; present {
+		s, _ := stage.(string)
+		switch s {
+		case "system", "software", "ux":
+		default:
+			return fmt.Errorf("option-set stage must be system|software|ux, got %q", s)
+		}
+	}
+	if cands, present := data["candidates"]; present {
+		raw, ok := cands.([]any)
+		if !ok || len(raw) < 2 {
+			return errors.New("option-set requires ≥2 genuine candidates (a single option is a decision, not an evaluation)")
+		}
+	}
+	selected, hasSel := data["selected"].(string)
+	if hasSel && strings.TrimSpace(selected) == "" {
+		return errors.New("option-set requires a non-empty selected option")
+	}
+	if !hasSel {
+		return nil // no selection in this write — nothing to cross-check
+	}
+	stage, _ := data["stage"].(string)
+	env, err := c.Env(r)
+	if err != nil {
+		return err
+	}
+	dispositioned := map[string]bool{}
+	for _, d := range env.Records("disposition") {
+		if ref, _ := d.Data["ref"].(string); ref != "" {
+			dispositioned[ref] = true
+		}
+	}
+	for _, prior := range env.Records("option-set") {
+		if s, _ := prior.Data["stage"].(string); stage != "" && s != stage {
+			continue
+		}
+		if dispositioned[prior.ID] {
+			continue
+		}
+		for _, rej := range rejectedIDs(prior.Data["rejected"]) {
+			if strings.EqualFold(rej, selected) {
+				return fmt.Errorf("option %q was rejected in option-set %s — select another, or record a disposition referencing it first (wf record disposition --ref %s --text \"why the rejection no longer holds\")",
+					selected, prior.ID, prior.ID)
+			}
+		}
+	}
+	return nil
+}
+
+// rejectedIDs flattens an option-set's rejected list: strings or {id,…}.
+func rejectedIDs(v any) []string {
+	raw, _ := v.([]any)
+	var out []string
+	for _, el := range raw {
+		switch t := el.(type) {
+		case string:
+			if t != "" {
+				out = append(out, t)
+			}
+		case map[string]any:
+			if id, _ := t["id"].(string); id != "" {
+				out = append(out, id)
+			}
+		}
+	}
+	return out
+}
+
+// validateACs checks a requirement's acs payload: a non-empty array whose
+// elements are non-empty strings ("AC-1: …") or maps with a non-empty id —
+// the same shapes contracts.elementIDs iterates per-each over.
+func validateACs(v any) error {
+	raw, ok := v.([]any)
+	if !ok || len(raw) == 0 {
+		return errors.New("requires at least one AC")
+	}
+	for i, el := range raw {
+		switch t := el.(type) {
+		case string:
+			if strings.TrimSpace(t) == "" {
+				return fmt.Errorf("AC %d is empty", i+1)
+			}
+		case map[string]any:
+			if id, _ := t["id"].(string); strings.TrimSpace(id) == "" {
+				return fmt.Errorf("AC %d has no id", i+1)
+			}
+		default:
+			return fmt.Errorf("AC %d must be a string or {id,text} object", i+1)
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

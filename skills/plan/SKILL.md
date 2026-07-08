@@ -41,7 +41,9 @@ Contract first:
   presentation covered at design"` (the waiver is recorded — E4)
 - `wf approve plan --payload "<task list + verification strategy>"`
   — pose the confirmation via AskUserQuestion, naming the PLAN in the
-  question (the hook infers the topic and anchors the answer to this gate)
+  question (the hook infers the topic and anchors the answer to this gate).
+  The engine binds the approval to the current task/strategy baseline —
+  tasks added later without re-approval surface as approval drift at Ship
 
 `wf phase exit` when met — Build is auto-advance: from here the engine
 expects execution, not conversation.

@@ -88,6 +88,59 @@ func TestTraceFindingsAndIdempotence(t *testing.T) {
 	}
 }
 
+// Approval drift: records added after an approval bound its refs surface as
+// medium findings; re-approving binds them and creates nothing new.
+func TestTraceApprovalDrift(t *testing.T) {
+	c := newCtl(t)
+	_, _ = c.RunStart("diff", "fix")
+	rec := func(kind string, data map[string]any) {
+		t.Helper()
+		if _, err := c.Record(kind, data, false, "agent"); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+	}
+	rec("requirement", map[string]any{"rid": "SWR-1", "level": "software", "text": "t", "status": "active",
+		"acs": []any{map[string]any{"id": "AC-1", "text": "a", "verifiable": true}}})
+	if _, err := c.Approve("scope", "baseline"); err != nil {
+		t.Fatal(err)
+	}
+	// no drift yet
+	if _, err := Trace(c); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range openFindings(t, c) {
+		if strings.HasPrefix(f.Data["key"].(string), "drift:") {
+			t.Fatalf("no drift expected right after approval: %+v", f.Data)
+		}
+	}
+	// a requirement appears after the approval → drift finding
+	rec("requirement", map[string]any{"rid": "SWR-2", "level": "software", "text": "late addition", "status": "active",
+		"acs": []any{map[string]any{"id": "AC-2", "text": "b", "verifiable": true}}})
+	if _, err := Trace(c); err != nil {
+		t.Fatal(err)
+	}
+	drift := 0
+	for _, f := range openFindings(t, c) {
+		if key, _ := f.Data["key"].(string); strings.HasPrefix(key, "drift:scope:req:SWR-2") {
+			drift++
+		}
+	}
+	if drift != 1 {
+		t.Fatalf("want 1 drift finding for SWR-2, got %d", drift)
+	}
+	// re-approval binds the new baseline: no NEW drift finding on re-trace
+	if _, err := c.Approve("scope", "baseline v2"); err != nil {
+		t.Fatal(err)
+	}
+	before := len(openFindings(t, c))
+	if _, err := Trace(c); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(openFindings(t, c)); got != before {
+		t.Fatalf("re-approved baseline must create no new findings: %d -> %d", before, got)
+	}
+}
+
 func TestTraceMakesShipGateReal(t *testing.T) {
 	c := newCtl(t)
 	_, _ = c.RunStart("diff", "fix")
