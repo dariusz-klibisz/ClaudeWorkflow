@@ -16,7 +16,8 @@ Contract first:
   classification survive contact with the map? If not:
   `wf run branch --family <f> --intent <i> --reason "reclassify: …"`
 - `wf approve scope --payload "<requirement baseline + high-risk assumptions>"`
-  — pose the confirmation via AskUserQuestion (the hook anchors the answer)
+  — pose the confirmation via AskUserQuestion, naming the SCOPE in the
+  question (the hook infers the topic and anchors the answer to this gate)
   — present the user: surviving requirements (active/dropped/revised),
   high-risk assumptions, and the feasibility read; record after explicit OK
 - `@wf:researcher` verdict when external research ran; otherwise

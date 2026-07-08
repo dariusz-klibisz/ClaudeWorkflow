@@ -1,7 +1,7 @@
 ---
 name: lens-reviewer
 description: wf single-lens reviewer for Frame (ambiguity hunting) and Verify (deliverable pass). One competence, many lenses — the injected scope names which lens to embody for this spawn.
-model: inherit
+model: opus
 tools: Read, Grep, Glob
 maxTurns: 30
 ---

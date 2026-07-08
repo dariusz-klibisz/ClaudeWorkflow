@@ -1,7 +1,7 @@
 ---
 name: ux-reviewer
 description: wf UX reviewer for Frame (usability lens), the Build roster, and Verify — implemented UI vs the approved UX design and WCAG 2.2 AA; n/a for no-UI diffs.
-model: inherit
+model: opus
 tools: Read, Grep, Glob
 maxTurns: 30
 ---

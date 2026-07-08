@@ -1,7 +1,7 @@
 ---
 name: code-quality-reviewer
 description: wf code quality reviewer for the Build roster. Quality, error handling, concurrency, and performance on the accumulated diff; per-area findings with n/a-with-note for absent surfaces.
-model: inherit
+model: opus
 tools: Read, Grep, Glob
 maxTurns: 40
 memory: project

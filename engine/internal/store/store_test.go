@@ -178,8 +178,13 @@ func TestArchiveRunKeepsDurableEvents(t *testing.T) {
 	if kinds["risk"] != 0 {
 		t.Error("archived event still live")
 	}
-	if kinds["followup"] != 1 || kinds["commit-origin"] != 1 {
-		t.Errorf("durable events must stay live: %v", kinds)
+	if kinds["followup"] != 1 {
+		t.Errorf("open followups must stay live: %v", kinds)
+	}
+	// bounded live log: commit-origin archives with its run — readers get it
+	// back via AllEvents (archives + live)
+	if kinds["commit-origin"] != 0 {
+		t.Errorf("commit-origin must archive with its run: %v", kinds)
 	}
 	if kinds["run"] != 1 {
 		t.Errorf("other runs' events must stay: %v", kinds)
@@ -190,5 +195,32 @@ func TestArchiveRunKeepsDurableEvents(t *testing.T) {
 	}
 	if len(arch) == 0 {
 		t.Error("archive empty")
+	}
+	all, err := s.AllEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	allKinds := map[string]int{}
+	for _, e := range all {
+		allKinds[e.Kind]++
+	}
+	if allKinds["commit-origin"] != 1 || allKinds["risk"] != 1 {
+		t.Errorf("AllEvents must fold archived events back in: %v", allKinds)
+	}
+}
+
+func TestPruneLocalOnArchive(t *testing.T) {
+	s := newStore(t)
+	_ = s.SaveLocal("tasks-mirror.json", map[string]any{"map": map[string]string{"1": "x"}})
+	_ = s.SaveLocal("verdict-attempts.json", map[string]any{"attempts": map[string]int{"a": 3}})
+	_ = s.Append(&Event{Kind: "run", Run: "r1", Data: map[string]any{"action": "start"}})
+	_ = s.Append(&Event{Kind: "run", Run: "r1", Data: map[string]any{"action": "close"}})
+	if err := s.ArchiveRun("r1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"tasks-mirror.json", "verdict-attempts.json"} {
+		if _, err := os.Stat(s.LocalPath(n)); !os.IsNotExist(err) {
+			t.Errorf("local/%s must be pruned at close", n)
+		}
 	}
 }

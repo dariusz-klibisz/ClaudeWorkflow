@@ -19,6 +19,10 @@
 #   red-green       {link}                       a failing test-run then a later
 #                                                passing one, both tagged with
 #                                                the per-each item id via `link`
+#   artifact-present {"template?", "role?"}      a matching artifact record whose
+#                                                file EXISTS ON DISK and is
+#                                                authored (non-stub, not the
+#                                                untouched template)
 #
 # `when` conditions gate whether an item applies at all:
 #   when.intents: [..]      run intent tag is one of these
@@ -119,27 +123,31 @@ roster:
   - { name: ux-design-reviewer, gating: true, phases: [design], model: opus,
       tools: [Read, Grep, Glob], maxTurns: 30, when: { config: { ux: true } },
       corpus: [reference/ux/21-agent-checklists.md, reference/ux/05-accessibility.md] }
-  - { name: code-quality-reviewer, gating: true, phases: [build], model: inherit,
+  # Gating reviewers are model-PINNED (never inherit): the author side
+  # (implementer/researcher) inherits the session model, reviewers always
+  # run opus — deliberate reviewer-vs-author asymmetry so a cheaper session
+  # model is never reviewing its own blind spots at its own tier.
+  - { name: code-quality-reviewer, gating: true, phases: [build], model: opus,
       tools: [Read, Grep, Glob], maxTurns: 40, memory: project,
       corpus: [reference/coding/01-principles.md, reference/coding/03-error-handling.md,
                reference/coding/06-performance.md, reference/coding/07-concurrency.md,
                reference/coding/09-documentation-and-comments.md, reference/coding/checklists] }
-  - { name: code-security-reviewer, gating: true, phases: [build], model: inherit,
+  - { name: code-security-reviewer, gating: true, phases: [build], model: opus,
       tools: [Read, Grep, Glob], maxTurns: 40,
       corpus: [reference/coding/04-security.md] }
-  - { name: code-testing-reviewer, gating: true, phases: [build], model: inherit,
+  - { name: code-testing-reviewer, gating: true, phases: [build], model: opus,
       tools: [Read, Grep, Glob], maxTurns: 40,
       corpus: [reference/coding/05-testing.md] }
   - { name: design-conformance-reviewer, gating: true, phases: [build, verify],
-      model: inherit, tools: [Read, Grep, Glob], maxTurns: 40,
+      model: opus, tools: [Read, Grep, Glob], maxTurns: 40,
       corpus: [reference/design/03-software-design-principles.md] }
   - { name: adversary, gating: true, phases: [frame, design, build, verify],
       model: opus, tools: [Read, Grep, Glob], maxTurns: 40, memory: project,
       corpus: [reference/coding/04-security.md] }
-  - { name: lens-reviewer, gating: true, phases: [frame, verify], model: inherit,
+  - { name: lens-reviewer, gating: true, phases: [frame, verify], model: opus,
       tools: [Read, Grep, Glob], maxTurns: 30 }
   - { name: ux-reviewer, gating: true, phases: [frame, build, verify],
-      model: inherit, tools: [Read, Grep, Glob], maxTurns: 30,
+      model: opus, tools: [Read, Grep, Glob], maxTurns: 30,
       when: { config: { ux: true } },
       corpus: [reference/ux/05-accessibility.md, reference/ux/06-aria-widget-reference.md,
                reference/ux/18-patterns-antipatterns.md, reference/ux/21-agent-checklists.md] }
@@ -172,14 +180,14 @@ records:
   - { kind: verdict, fields: [agent, status, criticals, majors, "scope?"] }
   - { kind: ac-verdict, fields: [ac, status] } # status: pass|fail|deferred
   - { kind: approval, fields: [gate, "payload_hash?", "answer_ref?"] } # gate: frame|scope|design|plan|deferral|lesson|deviation
-  - { kind: user-answer, fields: [question, answer] } # hook-captured AskUserQuestion exchange (04 §8.1 anchoring)
+  - { kind: user-answer, fields: [question, answer, "topic?"] } # hook-captured AskUserQuestion exchange (04 §8.1 anchoring); topic = inferred approval gate
   - { kind: artifact, fields: [path, status, "template?", "role?"] } # status: present|stub|missing
   - { kind: deviation, fields: [text, status] } # status: pending|acked
   - { kind: disposition, fields: [ref, text] }
   - { kind: followup, fields: [text, status] } # status: open|task|next-run
   - { kind: origin, fields: ["commit?", attribution] }
   - { kind: commit-origin, fields: [commit, run] }
-  - { kind: metric, fields: [name, value] }
+  - { kind: metric, fields: [name, value, "below_threshold?", "grounded?"] } # below_threshold engine-computed vs config.thresholds; grounded = scraped from runner output
   - { kind: lesson, fields: [text, status, "check?"] } # status: proposed|accepted|rejected
   - { kind: loop, fields: [ac, cause, evidence, target] } # cause: slip|design|plan
   - { kind: scope-boundary, fields: [in_scope, out_of_scope] }
@@ -187,7 +195,7 @@ records:
   - { kind: rollback-readiness, fields: ["procedure?", "trigger?", "na?"] }
   - { kind: trace-finding, fields: [text, severity, status] } # status: open|resolved|dispositioned
   - { kind: waiver, fields: [item, reason] }
-  - { kind: escape, fields: [action, reason, "level?"] } # action: park|force|enforce-off
+  - { kind: escape, fields: [action, reason, "level?", "gate?"] } # action: park|force|enforce-off|stop-cap
   - { kind: edit, fields: [path, "task?"] } # auto-captured edit→task binding (never gated)
 
 # ---------------------------------------------------------------------------
@@ -330,10 +338,15 @@ contracts:
     phase: design
     families: [diff, artifact]
     when: { records: { kind: option-set, filter: { stage: system } } }
-    predicate: record-exists
-    params: { kind: artifact, filter: { template: adr } }
+    predicate: artifact-present
+    params: { template: adr }
     waivable: true
-    remediation: "Architectural decision ⇒ ADR: wf doc new adr (alternatives = the option-set IDs)"
+    remediation: "Architectural decision ⇒ ADR: wf doc new adr (alternatives = the option-set IDs), authored on disk"
+  - id: design.artifacts-authored
+    phase: design
+    predicate: no-open
+    params: { kind: artifact, field: status, open: [stub] }
+    remediation: "Author every template created this phase, then flip it: wf record artifact updates=<id> status=present (abandoned: status=missing)"
   - id: design.approved
     phase: design
     families: [diff, artifact]
@@ -443,9 +456,14 @@ contracts:
   - id: build.artifact-authored
     phase: build
     families: [artifact, assessment]
-    predicate: record-exists
-    params: { kind: artifact, filter: { status: present } }
-    remediation: "Author the deliverable and record it: wf doc new … / wf record artifact --path … --status present"
+    predicate: artifact-present
+    params: {}
+    remediation: "Author the deliverable on disk and record it: wf doc new … / wf record artifact --path … --status present"
+  - id: build.artifacts-authored
+    phase: build
+    predicate: no-open
+    params: { kind: artifact, field: status, open: [stub] }
+    remediation: "Author every template created so far, then flip it: wf record artifact updates=<id> status=present (abandoned: status=missing)"
   - id: build.deviations-acked
     phase: build
     predicate: no-open
@@ -522,9 +540,14 @@ contracts:
   - id: verify.report-present
     phase: verify
     families: [assessment]
-    predicate: record-exists
-    params: { kind: artifact, filter: { role: deliverable-report, status: present } }
-    remediation: "The findings report must exist and not be a stub"
+    predicate: artifact-present
+    params: { role: deliverable-report }
+    remediation: "The findings report must exist on disk and not be a stub (wf doc new review|research-findings|investigation-findings)"
+  - id: verify.artifacts-authored
+    phase: verify
+    predicate: no-open
+    params: { kind: artifact, field: status, open: [stub] }
+    remediation: "Author every template created so far, then flip it: wf record artifact updates=<id> status=present (abandoned: status=missing)"
   - id: verify.origin-attributed
     phase: verify
     when: { intents: [investigate] }
@@ -552,9 +575,14 @@ contracts:
   - id: ship.delivery-manifest
     phase: ship
     when: { intents: [deploy] }
-    predicate: record-exists
-    params: { kind: artifact, filter: { role: delivery-manifest } }
-    remediation: "Deploy intent ⇒ delivery manifest incl. target + config diff: wf doc new delivery-manifest"
+    predicate: artifact-present
+    params: { role: delivery-manifest }
+    remediation: "Deploy intent ⇒ delivery manifest incl. target + config diff, authored on disk: wf doc new delivery-manifest"
+  - id: ship.artifacts-authored
+    phase: ship
+    predicate: no-open
+    params: { kind: artifact, field: status, open: [stub] }
+    remediation: "Author every template created this run, then flip it: wf record artifact updates=<id> status=present (abandoned: status=missing)"
   - id: ship.lessons-dispositioned
     phase: ship
     predicate: no-open
@@ -565,3 +593,62 @@ contracts:
     predicate: no-open
     params: { kind: followup, field: status, open: [open] }
     remediation: "Convert open followups to tasks or carry them: wf record followup --status next-run"
+
+  # --- Phase-entry inputs (stage: entry) -------------------------------------
+  # Each phase's canonical input, checked when ENTERING it: blocking at the
+  # previous phase's `wf phase exit`, re-checked by the skill gate on
+  # adopt/resume/force landings, surfaced by inject. All waivable — the
+  # recorded escape for deliberate skips; --force skips them like everything.
+  - id: context.entry-classification
+    phase: context
+    stage: entry
+    predicate: record-exists
+    params: { kind: classification }
+    waivable: true
+    remediation: "Context needs Frame's classification: wf record classification --family <f> --intent <i> --restated \"…\""
+  - id: design.entry-requirements
+    phase: design
+    stage: entry
+    families: [diff, artifact]
+    predicate: record-exists
+    params: { kind: requirement }
+    waivable: true
+    remediation: "Design needs framed requirements with ACs: wf record requirement …"
+  - id: plan.entry-context-map
+    phase: plan
+    stage: entry
+    predicate: record-exists
+    params: { kind: context-map }
+    waivable: true
+    remediation: "Plan needs the Context map: wf record context-map --entries … --sufficiency …"
+  - id: build.entry-tasks
+    phase: build
+    stage: entry
+    predicate: record-exists
+    params: { kind: task }
+    waivable: true
+    remediation: "Build needs Plan's task breakdown: wf record task --subject … --dod …"
+  - id: verify.entry-requirements
+    phase: verify
+    stage: entry
+    families: [diff, artifact]
+    predicate: record-exists
+    params: { kind: requirement }
+    waivable: true
+    remediation: "Verify needs requirements/ACs to verdict against: wf record requirement …"
+  - id: ship.entry-ac-verdicts
+    phase: ship
+    stage: entry
+    families: [diff, artifact]
+    predicate: record-exists
+    params: { kind: ac-verdict }
+    waivable: true
+    remediation: "Ship needs Verify's AC verdicts: wf record ac-verdict --ac <id> --status …"
+  - id: ship.entry-report
+    phase: ship
+    stage: entry
+    families: [assessment]
+    predicate: artifact-present
+    params: { role: deliverable-report }
+    waivable: true
+    remediation: "Ship needs the authored findings report on disk: wf doc new review|research-findings|investigation-findings"

@@ -28,6 +28,13 @@ decides, phase skills instruct, hooks enforce.
    errored with a missing `.../data/wf-*/bin/wf` (dead hooks — happens when
    the plugin was installed mid-session), run `wf doctor --bootstrap`: it
    installs the hook engine on the spot and the gates revive immediately.
-3. Never edit files under `.workflow/state|log|runs` by hand; every fact is
-   recorded through `wf` commands. Escapes exist and are audited:
-   `/wf:park` (honest stop), `/wf:force` (bypass one gate, escalates).
+3. `.workflow/{log,state,runs}` and `config.json` are engine-written and
+   tool-protected: Edit/Write and Bash redirects into them are DENIED (no
+   override), and the event log is hash-chained — `wf doctor` flags any
+   out-of-band edit. Every fact is recorded through `wf` commands; config
+   changes belong to the user. Escapes exist and are audited: `/wf:park`
+   (honest stop), `/wf:force` (bypass one gate, escalates).
+4. Phase transitions also check the NEXT phase's inputs (entry contract).
+   Landed in a phase whose inputs are missing (adopt/force)? The skill gate
+   and the [wf] block name the gap — produce it or waive it
+   (`wf contract waive <id> --reason …`), never work around it.

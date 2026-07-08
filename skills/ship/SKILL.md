@@ -32,6 +32,12 @@ Contract first:
 Close-out, in one atomic engine transaction:
 1. `wf phase exit` (ship contract met)
 2. `wf run close` — archives events to `.workflow/runs/<id>/`, freezes the
-   signals snapshot (`signals.json`), compacts the live log (open followups,
-   commit-origins, lessons stay live), clears the snapshot. Ordering is
-   engine-owned — nothing to sequence by hand.
+   signals snapshot (`signals.json`), compacts the live log (ONLY open
+   followups stay live; lessons and commit-origins archive with the run and
+   their readers fold them back in), prunes the per-machine `local/`
+   counters, clears the snapshot. Ordering is engine-owned — nothing to
+   sequence by hand.
+
+Optional but valued: `wf doc new retro --slug <run-id>` for runs worth a
+written retrospective — author it before close (a stub blocks the
+ship contract's artifact sweep).

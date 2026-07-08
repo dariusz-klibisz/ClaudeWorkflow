@@ -8,6 +8,9 @@ package store
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,17 +27,23 @@ const (
 
 // Event is the envelope for every record and engine transition (08 §3).
 type Event struct {
-	Schema  int            `json:"schema"`
-	ID      string         `json:"id"`
-	Seq     int64          `json:"seq"` // per-writer ordering hint; ties break on ID
-	TS      string         `json:"ts"`
-	Run     string         `json:"run,omitempty"`
-	Phase   string         `json:"phase,omitempty"`
-	Kind    string         `json:"kind"`
-	Auto    bool           `json:"auto"`
-	Actor   string         `json:"actor"` // agent | engine | hook | user
-	Note    string         `json:"note,omitempty"`
-	Data    map[string]any `json:"data,omitempty"`
+	Schema int    `json:"schema"`
+	ID     string `json:"id"`
+	Seq    int64  `json:"seq"` // per-writer ordering hint; ties break on ID
+	// Prev chains each log line to the raw bytes of the line before it
+	// (sha256/16). Tamper-EVIDENCE, not cryptographic integrity: an
+	// out-of-band editor must recompute every later line, which wf doctor
+	// makes visible. Engine rewrites (compaction, archive) re-anchor the
+	// chain legitimately.
+	Prev  string         `json:"prev,omitempty"`
+	TS    string         `json:"ts"`
+	Run   string         `json:"run,omitempty"`
+	Phase string         `json:"phase,omitempty"`
+	Kind  string         `json:"kind"`
+	Auto  bool           `json:"auto"`
+	Actor string         `json:"actor"` // agent | engine | hook | user
+	Note  string         `json:"note,omitempty"`
+	Data  map[string]any `json:"data,omitempty"`
 }
 
 // Str returns a string field from Data.
@@ -54,11 +63,11 @@ type Run struct {
 	Started string `json:"started"`
 	Parent  string `json:"parent,omitempty"`
 	// counters maintained by runctl
-	Loops     int            `json:"loops"`
-	SlipByAC  map[string]int `json:"slip_by_ac,omitempty"`
-	Forces    int            `json:"forces"`
-	WaivedPh  []string       `json:"waived_phases,omitempty"`
-	ExitedPh  []string       `json:"exited_phases,omitempty"`
+	Loops    int            `json:"loops"`
+	SlipByAC map[string]int `json:"slip_by_ac,omitempty"`
+	Forces   int            `json:"forces"`
+	WaivedPh []string       `json:"waived_phases,omitempty"`
+	ExitedPh []string       `json:"exited_phases,omitempty"`
 }
 
 // Config is .workflow/config.json (08 §2).
@@ -135,12 +144,12 @@ func (s *Store) path(parts ...string) string {
 	return filepath.Join(append([]string{s.Root}, parts...)...)
 }
 
-func (s *Store) EventsPath() string     { return s.path("log", "events.jsonl") }
-func (s *Store) RunPath() string        { return s.path("state", "run.json") }
-func (s *Store) ConfigPath() string     { return s.path("config.json") }
+func (s *Store) EventsPath() string        { return s.path("log", "events.jsonl") }
+func (s *Store) RunPath() string           { return s.path("state", "run.json") }
+func (s *Store) ConfigPath() string        { return s.path("config.json") }
 func (s *Store) LocalPath(n string) string { return s.path("local", n) }
-func (s *Store) ContractsDir() string   { return s.path("contracts.d") }
-func (s *Store) RunsDir() string        { return s.path("runs") }
+func (s *Store) ContractsDir() string      { return s.path("contracts.d") }
+func (s *Store) RunsDir() string           { return s.path("runs") }
 
 // ---------------------------------------------------------------------------
 // Locking (single writer; gates read lock-free)
@@ -217,6 +226,11 @@ func (s *Store) Append(ev *Event) error {
 			}
 		}
 	}
+	// Chain to the previous raw line (tamper evidence; doctor verifies).
+	ev.Prev = ""
+	if last, ok := lastLine(f); ok {
+		ev.Prev = chainHash(last)
+	}
 	line, err := json.Marshal(ev)
 	if err != nil {
 		return err
@@ -225,6 +239,43 @@ func (s *Store) Append(ev *Event) error {
 		return err
 	}
 	return f.Sync()
+}
+
+// chainHash is the line-chaining hash: sha256 over the raw line bytes
+// (no trailing newline), truncated to 16 hex chars.
+func chainHash(line []byte) string {
+	sum := sha256.Sum256(line)
+	return hex.EncodeToString(sum[:8])
+}
+
+// maxLineTail bounds the backwards read for the previous line — matches the
+// scanner's max token size, so any scannable line is chainable.
+const maxLineTail = 4 * 1024 * 1024
+
+// lastLine returns the last complete line of f (which is guaranteed by the
+// caller to end with '\n' when non-empty). ok=false on an empty file or when
+// the final line exceeds maxLineTail.
+func lastLine(f *os.File) ([]byte, bool) {
+	st, err := f.Stat()
+	if err != nil || st.Size() == 0 {
+		return nil, false
+	}
+	off := int64(0)
+	if st.Size() > maxLineTail {
+		off = st.Size() - maxLineTail
+	}
+	buf := make([]byte, st.Size()-off)
+	if _, err := f.ReadAt(buf, off); err != nil {
+		return nil, false
+	}
+	buf = bytes.TrimSuffix(buf, []byte("\n"))
+	if i := bytes.LastIndexByte(buf, '\n'); i >= 0 {
+		return buf[i+1:], true
+	}
+	if off > 0 {
+		return nil, false // line longer than the window — unchainable
+	}
+	return buf, true
 }
 
 func (s *Store) lastSeq() int64 {
@@ -277,6 +328,30 @@ func (s *Store) ListArchivedRuns() ([]string, error) {
 	}
 	sort.Strings(ids)
 	return ids, nil
+}
+
+// AllEvents returns archived + live events in chronological order (archived
+// runs are date-prefixed and sorted; the live log follows). Feeds views,
+// lessons regeneration, and origin discovery — NEVER gates (07 §5): gate
+// reads stay O(live log).
+func (s *Store) AllEvents() ([]Event, error) {
+	var out []Event
+	ids, err := s.ListArchivedRuns()
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		evs, err := s.ArchivedRunEvents(id)
+		if err != nil {
+			continue // a damaged archive must not take down the readers
+		}
+		out = append(out, evs...)
+	}
+	live, err := s.Events(nil)
+	if err != nil {
+		return out, err
+	}
+	return append(out, live...), nil
 }
 
 // ArchivedRunEvents reads a closed run's archived event slice
@@ -449,19 +524,33 @@ func (s *Store) ArchiveRun(runID string) error {
 	if err := os.Rename(s.EventsPath()+".tmp", s.EventsPath()); err != nil {
 		return err
 	}
+	s.PruneLocal()
 	return s.ClearRun()
 }
 
+// PruneLocal clears the per-machine run-scoped counters and mirrors at run
+// close — none carries meaning across runs, and two of them (tasks-mirror,
+// verdict-attempts) otherwise grow forever.
+func (s *Store) PruneLocal() {
+	for _, n := range []string{"tasks-mirror.json", "verdict-attempts.json", "stop-gate.json", "enforce-off.json"} {
+		_ = os.Remove(s.LocalPath(n))
+	}
+}
+
+// keepLive: only OPEN followups survive in the live log after close. Lesson
+// and commit-origin events archive with their run (bounded live log — the
+// "grows forever" fix): their durable forms are the regenerated lesson
+// channels and the committed runs/<id>/ archives, and their readers
+// (lessons regeneration, origin discovery) fold archived events back in.
 func keepLive(e Event) bool {
-	switch e.Kind {
-	case "followup":
+	if e.Kind == "followup" {
 		return e.Str("status") == "open" || e.Str("status") == "next-run"
-	case "commit-origin", "lesson":
-		return true
 	}
 	return false
 }
 
+// writeEvents rewrites a log file, re-anchoring the hash chain (engine
+// rewrites — compaction and archival — are the only legitimate re-chains).
 func writeEvents(path string, evs []Event) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -469,7 +558,9 @@ func writeEvents(path string, evs []Event) error {
 	}
 	defer f.Close()
 	w := bufio.NewWriter(f)
+	prev := ""
 	for _, e := range evs {
+		e.Prev = prev
 		line, err := json.Marshal(e)
 		if err != nil {
 			return err
@@ -477,11 +568,74 @@ func writeEvents(path string, evs []Event) error {
 		if _, err := w.Write(append(line, '\n')); err != nil {
 			return err
 		}
+		prev = chainHash(line)
 	}
 	if err := w.Flush(); err != nil {
 		return err
 	}
 	return f.Sync()
+}
+
+// ChainReport is VerifyChain's result: chain breaks and unparseable lines in
+// a log file (doctor surfaces both; store.scan tolerates them silently).
+type ChainReport struct {
+	Breaks      []string // "line N: …" descriptions
+	Unparseable int
+	Lines       int
+}
+
+// VerifyChain checks the live log's line hash chain. Legacy lines (written
+// before chaining) carry no prev and are tolerated — but once any line
+// carries prev, every later line must, or the gap is a break (an appended
+// forgery cannot simply omit the field).
+func (s *Store) VerifyChain() (ChainReport, error) {
+	return verifyChainFile(s.EventsPath())
+}
+
+func verifyChainFile(path string) (ChainReport, error) {
+	var rep ChainReport
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return rep, nil
+		}
+		return rep, err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), maxLineTail)
+	prevHash := ""
+	chained := false // seen any prev-carrying line yet
+	n := 0
+	for sc.Scan() {
+		raw := sc.Bytes()
+		if len(raw) == 0 {
+			continue
+		}
+		n++
+		var ev Event
+		if err := json.Unmarshal(raw, &ev); err != nil {
+			rep.Unparseable++         // reported separately by doctor
+			prevHash = chainHash(raw) // later lines chain over raw bytes regardless
+			continue
+		}
+		switch {
+		case ev.Prev == "" && n == 1:
+			// genesis
+		case ev.Prev == "" && !chained:
+			// legacy segment (pre-chaining engine)
+		case ev.Prev == "" && chained:
+			rep.Breaks = append(rep.Breaks, fmt.Sprintf("line %d (%s %s): chain regression — no prev after chained lines", n, ev.Kind, ev.ID))
+		case ev.Prev != prevHash:
+			rep.Breaks = append(rep.Breaks, fmt.Sprintf("line %d (%s %s): prev %s does not match the preceding line (%s) — the log was edited out-of-band", n, ev.Kind, ev.ID, ev.Prev, prevHash))
+		}
+		if ev.Prev != "" {
+			chained = true
+		}
+		prevHash = chainHash(raw)
+	}
+	rep.Lines = n
+	return rep, sc.Err()
 }
 
 func countLines(path string) (int, error) {

@@ -8,8 +8,9 @@ package ops
 //   - prose lessons (no check) regenerate .claude/rules/wf-lessons.md
 //     (marker-delimited, engine-owned, committed) — unscoped rules re-inject
 //     after compaction (05 §2).
-// Both files are regenerated idempotently from lesson records, which survive
-// run close in the live log (store keepLive, 08 §6).
+// Both files are regenerated idempotently from lesson records, read from the
+// committed run archives + the live log (lesson events archive with their
+// run — the bounded-live-log rule, 08 §6).
 
 import (
 	"fmt"
@@ -198,10 +199,11 @@ func LessonsApply(c *runctl.Ctl, projectDir, specPath string) (string, error) {
 // internals
 // ---------------------------------------------------------------------------
 
-// lessonRecords folds ALL lesson events in the live log (any run — lessons
-// survive close) into effective records.
+// lessonRecords folds ALL lesson events — archived runs + the live log —
+// into effective records. Lesson events archive with their run (bounded
+// live log); regeneration reads them back from the committed archives.
 func lessonRecords(c *runctl.Ctl) []contracts.Record {
-	evs, err := c.Store.Events(nil)
+	evs, err := c.Store.AllEvents()
 	if err != nil {
 		return nil
 	}

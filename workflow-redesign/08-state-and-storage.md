@@ -119,9 +119,18 @@ JSON Schemas for all kinds are generated from the engine's type definitions
   compact → clear snapshot — one command, fixing the A5 ordering gap
   including the terminal event, which is written *before* the move as part of
   the same transaction).
-- Preserved in the live log across compaction: open `followup`s,
-  `commit-origin` events (durable escaped-defect attribution), `lesson`
-  state.
+- Preserved in the live log across compaction: open `followup`s ONLY — the
+  bounded-live-log rule (revised: the original design kept `commit-origin`
+  and `lesson` events live forever, so the log grew without bound). Lesson
+  and commit-origin events archive with their run; their readers (lesson
+  regeneration, `wf origin discover`) fold archived events back in via the
+  committed `runs/<id>/` slices. Run close also prunes the per-machine
+  `local/` counters (tasks-mirror, verdict-attempts, stop-gate).
+- The live log is hash-chained (`prev` per line, sha256/16) and re-anchored
+  by engine rewrites; `wf doctor` verifies the chain and reports torn or
+  foreign lines — combined with the tool-gate denies on
+  `.workflow/{log,state,runs}` and `config.json`, direct ledger forgery is
+  blocked at the tool surface and tamper-evident past it.
 - Abandoned runs: `wf doctor` flags runs idle >30 days and offers
   park-and-archive (E2). `runs/**` grows with history by design; a
   `wf archive prune --before` exists for repos that outgrow it (squashes

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/spec"
@@ -42,9 +43,150 @@ func main() {
 	if err := agentSkeletons(*check, root, sp); err != nil {
 		fatal(err)
 	}
+	if *check {
+		if err := checkProseParity(root, sp); err != nil {
+			fatal(err)
+		}
+	}
 	if *check && drift {
 		fatal(fmt.Errorf("generated files drift from workflow.yaml — run `go generate ./...` (go run ./gen)"))
 	}
+}
+
+// ---------------------------------------------------------------------------
+// prose↔contract parity (the v0.36 gate_contract_map lesson, wf-native):
+// skill/agent prose may only reference contract ids that exist, and every
+// phase skill must mention each of its exit items' key noun — a workflow.yaml
+// item nobody's procedure mentions (or a skill teaching a removed item) is
+// CI-visible drift, not a silent gap.
+// ---------------------------------------------------------------------------
+
+var contractIDRe = regexp.MustCompile(`\b(frame|context|design|plan|build|verify|ship)\.[a-z][a-z0-9-]*\b`)
+
+// parityAllowlist: exit items whose procedure lives outside the phase skill
+// (engine-automated, or taught by a shared skill). Every entry needs a
+// reason — this list is the honest record of what is NOT skill-taught.
+var parityAllowlist = map[string]string{
+	"build.tasks-closed":        "task lifecycle is native TaskCreate/TaskUpdate, gated by TaskCompleted — not a skill instruction",
+	"ship.tasks-resolved":       "followup conversion is part of the close checklist in the dev skill",
+	"verify.artifacts-authored": "generic stub sweep — the authoring instruction lives with each doc-creating item",
+	"ship.artifacts-authored":   "generic stub sweep — see verify.artifacts-authored",
+	"build.artifacts-authored":  "generic stub sweep — see verify.artifacts-authored",
+	"design.artifacts-authored": "generic stub sweep — see verify.artifacts-authored",
+}
+
+func checkProseParity(root string, sp *spec.Spec) error {
+	ids := map[string]bool{}
+	for _, c := range sp.Contracts {
+		ids[c.ID] = true
+	}
+
+	// 1. every contract-id-shaped token in prose must exist in the spec
+	proseFiles, _ := filepath.Glob(filepath.Join(root, "skills", "*", "SKILL.md"))
+	agentFiles, _ := filepath.Glob(filepath.Join(root, "agents", "*.md"))
+	for _, p := range append(proseFiles, agentFiles...) {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		for _, tok := range contractIDRe.FindAllString(string(raw), -1) {
+			if !ids[tok] {
+				return fmt.Errorf("%s references contract id %q which does not exist in workflow.yaml", p, tok)
+			}
+		}
+	}
+
+	// 2. each phase skill mentions every exit item's key noun
+	for _, ph := range sp.Phases {
+		p := filepath.Join(root, "skills", ph.Skill, "SKILL.md")
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("phase %s: skill file: %w", ph.ID, err)
+		}
+		content := strings.ToLower(string(raw))
+		for _, it := range sp.Contracts {
+			if it.Phase != ph.ID || it.Stage == "entry" {
+				continue
+			}
+			if _, ok := parityAllowlist[it.ID]; ok {
+				continue
+			}
+			mentions := itemMentions(it)
+			if len(mentions) == 0 {
+				continue
+			}
+			hit := false
+			for _, m := range mentions {
+				if strings.Contains(content, strings.ToLower(m)) {
+					hit = true
+					break
+				}
+			}
+			if !hit {
+				return fmt.Errorf("skill %s never mentions contract item %s (expected one of: %s) — teach it or allowlist it with a reason",
+					p, it.ID, strings.Join(mentions, ", "))
+			}
+		}
+	}
+	return nil
+}
+
+// itemMentions derives the noun(s) a skill must utter to count as teaching
+// the item: the record kind, the gating agent, or the approve command.
+func itemMentions(it spec.ContractItem) []string {
+	return predicateMentions(it.Predicate, it.Params)
+}
+
+func predicateMentions(pred string, params map[string]any) []string {
+	switch pred {
+	case spec.PredRecordExists, spec.PredNoOpen, spec.PredLinkedRecord, spec.PredPerEach:
+		if pred == spec.PredPerEach {
+			// the per-each ITEM is what the agent produces
+			if item, ok := params["item"].(map[string]any); ok {
+				if p, prm, err := spec.SubItem(item); err == nil {
+					return predicateMentions(p, prm)
+				}
+			}
+		}
+		if k, _ := params["kind"].(string); k != "" {
+			return []string{k}
+		}
+	case spec.PredVerdictIn:
+		if a, _ := params["agent"].(string); a != "" {
+			return []string{a}
+		}
+	case spec.PredApproval:
+		if g, _ := params["gate"].(string); g != "" {
+			return []string{"approve " + g}
+		}
+	case spec.PredRedGreen:
+		return []string{"red", "test-first"}
+	case spec.PredArtifactPresent:
+		var out []string
+		if t, _ := params["template"].(string); t != "" {
+			out = append(out, t)
+		}
+		if r, _ := params["role"].(string); r != "" {
+			out = append(out, r)
+		}
+		if len(out) == 0 {
+			out = append(out, "artifact")
+		}
+		return out
+	case spec.PredAnyOf:
+		var out []string
+		if items, ok := params["items"].([]any); ok {
+			for _, raw := range items {
+				if m, ok := raw.(map[string]any); ok {
+					if p, prm, err := spec.SubItem(m); err == nil {
+						out = append(out, predicateMentions(p, prm)...)
+					}
+				}
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -147,11 +289,11 @@ func recordSchemas(sp *spec.Spec) map[string][]byte {
 			props[f] = map[string]any{}
 		}
 		schema := map[string]any{
-			"$schema":  "https://json-schema.org/draft/2020-12/schema",
-			"$id":      "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/" + rk.Kind + ".json",
-			"title":    "wf record: " + rk.Kind,
-			"type":     "object",
-			"required": rk.Required(),
+			"$schema":    "https://json-schema.org/draft/2020-12/schema",
+			"$id":        "https://github.com/dariusz-klibisz/ClaudeWorkflow/workflow/schemas/" + rk.Kind + ".json",
+			"title":      "wf record: " + rk.Kind,
+			"type":       "object",
+			"required":   rk.Required(),
 			"properties": props,
 		}
 		raw, _ := json.MarshalIndent(schema, "", "  ")
@@ -195,6 +337,9 @@ func agentSkeletons(check bool, root string, sp *spec.Spec) error {
 			// code-quality-reviewer, adversary — 06 §"Frontmatter").
 			if check {
 				if err := checkAgentMemory(p, a); err != nil {
+					return err
+				}
+				if err := checkAgentModel(p, a); err != nil {
 					return err
 				}
 			}
@@ -245,6 +390,21 @@ func checkAgentMemory(path string, a spec.Agent) error {
 	got := frontmatterField(string(raw), "memory")
 	if got != a.Memory {
 		return fmt.Errorf("agent %q: frontmatter memory %q != roster memory %q (align agents/%s.md with workflow.yaml)", a.Name, got, a.Memory, a.Name)
+	}
+	return nil
+}
+
+// checkAgentModel verifies the roster's `model:` field matches the agent
+// file's frontmatter — drift here silently changes which model reviews
+// (the reviewer-vs-author asymmetry is roster-declared, WS-E).
+func checkAgentModel(path string, a spec.Agent) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	got := frontmatterField(string(raw), "model")
+	if got != a.Model {
+		return fmt.Errorf("agent %q: frontmatter model %q != roster model %q (align agents/%s.md with workflow.yaml)", a.Name, got, a.Model, a.Name)
 	}
 	return nil
 }

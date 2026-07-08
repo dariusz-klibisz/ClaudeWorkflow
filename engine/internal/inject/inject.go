@@ -50,6 +50,13 @@ func Session(c *runctl.Ctl) (string, error) {
 		return b.String() + fmt.Sprintf("contract evaluation unavailable (%v) — run `wf doctor`\n", err), nil
 	}
 
+	// missing phase inputs (adopt/resume/force landings) — early so the line
+	// survives Turn's 10-line window
+	if entry, err := contracts.EvaluateEntry(env, r.Phase); err == nil && len(entry) > 0 {
+		fmt.Fprintf(&b, "⚠ phase inputs missing: %s → %s (deliberate skip: wf contract waive %s --reason …)\n",
+			entry[0].ID, entry[0].Remediation, entry[0].ID)
+	}
+
 	agentItems, userItems := split(findings)
 	switch {
 	case len(findings) == 0:

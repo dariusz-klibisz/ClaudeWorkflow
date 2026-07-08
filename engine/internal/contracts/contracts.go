@@ -6,6 +6,8 @@ package contracts
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -28,6 +30,10 @@ type Env struct {
 	Config *store.Config
 	Run    *store.Run
 	Events []store.Event // the run's events, append order
+	// ProjectDir roots the artifact-present predicate's disk checks — the
+	// single deliberate filesystem window in an otherwise records-only
+	// evaluator. Empty = disk checks pass vacuously (report/lessons views).
+	ProjectDir string
 	// derived
 	records map[string][]Record // effective records by kind (updates folded)
 	alias   map[string]string   // any record/update event ID -> original record ID
@@ -116,7 +122,17 @@ func (e *Env) ResolveRecordID(id string) (string, bool) {
 // EvaluatePhase returns the unmet contract items for exiting the run's
 // current phase.
 func EvaluatePhase(env *Env, phase string) ([]Finding, error) {
-	items := env.Spec.ContractsFor(phase, env.Run.Family)
+	return evaluateItems(env, env.Spec.ContractsFor(phase, env.Run.Family))
+}
+
+// EvaluateEntry returns the unmet INPUT items for entering a phase —
+// blocking at the previous phase's exit, re-checked by the skill gate on
+// adopt/resume paths that never crossed the transition.
+func EvaluateEntry(env *Env, phase string) ([]Finding, error) {
+	return evaluateItems(env, env.Spec.EntryContractsFor(phase, env.Run.Family))
+}
+
+func evaluateItems(env *Env, items []spec.ContractItem) ([]Finding, error) {
 	var out []Finding
 	for _, it := range items {
 		if !whenApplies(env, it.When) {
@@ -240,8 +256,109 @@ func evalPredicate(env *Env, pred string, params map[string]any, ctxID string) (
 		return evalAnyOf(env, params, ctxID)
 	case spec.PredRedGreen:
 		return evalRedGreen(env, params, ctxID)
+	case spec.PredArtifactPresent:
+		return evalArtifactPresent(env, params)
 	}
 	return false, "", fmt.Errorf("unknown predicate %q", pred)
+}
+
+// evalArtifactPresent: at least one artifact record matching the template/
+// role filter exists, its file exists on disk, and the content is authored
+// (non-stub). This is the mechanical replacement for trusting a
+// self-reported `status: present` — the record claims, the disk confirms.
+func evalArtifactPresent(env *Env, p map[string]any) (bool, string, error) {
+	filter := map[string]any{}
+	for _, key := range []string{"template", "role"} {
+		if v, ok := p[key].(string); ok && v != "" {
+			filter[key] = v
+		}
+	}
+	cands := matchRecords(env, "artifact", filter)
+	if len(cands) == 0 {
+		return false, describeArtifactFilter(filter, "no artifact record"), nil
+	}
+	var details []string
+	for _, r := range cands {
+		if s, _ := r.Data["status"].(string); s == "missing" {
+			continue // explicitly abandoned
+		}
+		rel, _ := r.Data["path"].(string)
+		ok, detail := ArtifactOnDisk(env.ProjectDir, rel, env.templatePath(r))
+		if ok {
+			return true, "", nil
+		}
+		details = append(details, detail)
+	}
+	if len(details) == 0 {
+		return false, describeArtifactFilter(filter, "every matching artifact abandoned (status missing)"), nil
+	}
+	return false, strings.Join(dedupe(details), "; "), nil
+}
+
+// templatePath resolves the plugin template an artifact record was created
+// from, for the identical-to-template stub check. Empty when unknown.
+func (e *Env) templatePath(r Record) string {
+	tpl, _ := r.Data["template"].(string)
+	if tpl == "" || e.Spec == nil || e.Spec.PluginRoot() == "" {
+		return ""
+	}
+	return filepath.Join(e.Spec.PluginRoot(), "templates", tpl+".md")
+}
+
+func describeArtifactFilter(filter map[string]any, prefix string) string {
+	var parts []string
+	for k, v := range filter {
+		parts = append(parts, fmt.Sprintf("%s=%v", k, v))
+	}
+	sort.Strings(parts)
+	if len(parts) == 0 {
+		return prefix
+	}
+	return prefix + " (" + strings.Join(parts, ", ") + ")"
+}
+
+// Stub heuristic thresholds (ported from the v0.36 artifact check, which
+// they survived a year of field use in): fewer than 5 non-blank lines or
+// under 200 dense characters is a skeleton, not an authored document.
+const (
+	stubMinLines = 5
+	stubMinDense = 200
+)
+
+// ArtifactOnDisk verifies an artifact file exists and is authored. tmplPath
+// (optional) enables the strongest check: byte-identical to its template =
+// untouched stub. Empty projectDir passes vacuously (views without a
+// filesystem root). Shared with runctl's write-time `status: present` gate.
+func ArtifactOnDisk(projectDir, rel, tmplPath string) (bool, string) {
+	if projectDir == "" {
+		return true, ""
+	}
+	if rel == "" {
+		return false, "artifact record has no path"
+	}
+	abs := filepath.Join(projectDir, filepath.FromSlash(rel))
+	content, err := os.ReadFile(abs)
+	if err != nil {
+		return false, fmt.Sprintf("%s does not exist on disk", rel)
+	}
+	if tmplPath != "" {
+		if tmpl, err := os.ReadFile(tmplPath); err == nil && string(tmpl) == string(content) {
+			return false, fmt.Sprintf("%s is byte-identical to its template — author it", rel)
+		}
+	}
+	lines, dense := 0, 0
+	for _, ln := range strings.Split(string(content), "\n") {
+		t := strings.TrimSpace(ln)
+		if t == "" {
+			continue
+		}
+		lines++
+		dense += len(t)
+	}
+	if lines < stubMinLines || dense < stubMinDense {
+		return false, fmt.Sprintf("%s looks like a stub (%d non-blank lines, %d chars)", rel, lines, dense)
+	}
+	return true, ""
 }
 
 func evalRecordExists(env *Env, p map[string]any) (bool, string, error) {

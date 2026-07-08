@@ -7,6 +7,7 @@ package runctl
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -43,7 +44,16 @@ func (c *Ctl) Env(r *store.Run) (*contracts.Env, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &contracts.Env{Spec: c.Spec, Config: c.Config, Run: r, Events: evs}, nil
+	return &contracts.Env{Spec: c.Spec, Config: c.Config, Run: r, Events: evs,
+		ProjectDir: c.ProjectDir()}, nil
+}
+
+// ProjectDir is the directory .workflow/ lives in.
+func (c *Ctl) ProjectDir() string {
+	if c.Store == nil || c.Store.Root == "" {
+		return ""
+	}
+	return filepath.Dir(c.Store.Root)
 }
 
 func (c *Ctl) append(r *store.Run, kind string, auto bool, actor string, data map[string]any) (*store.Event, error) {
@@ -180,6 +190,17 @@ func (c *Ctl) PhaseExit(force bool, reason string) ([]contracts.Finding, string,
 		}
 		if len(findings) > 0 {
 			return findings, "", nil
+		}
+		// entry contract of the NEXT phase: its inputs must exist before
+		// the transition (waivers are the recorded escape; --force skips)
+		if next := c.nextUnwaived(r); next != "" {
+			entry, err := contracts.EvaluateEntry(env, next)
+			if err != nil {
+				return nil, "", err
+			}
+			if len(entry) > 0 {
+				return entry, "", nil
+			}
 		}
 		if _, err := c.append(r, "phase", false, "engine", map[string]any{"action": "exit"}); err != nil {
 			return nil, "", err
@@ -469,12 +490,72 @@ func (c *Ctl) validateRecord(r *store.Run, kind string, data map[string]any, aut
 		if _, ok := data["grounded"]; !ok {
 			data["grounded"] = auto // manual records are ungrounded unless captured
 		}
+	case "metric":
+		if _, ok := data["grounded"]; !ok {
+			data["grounded"] = auto // manual metrics are self-attested (reported as such)
+		}
+		// below_threshold is engine-computed, never self-declared: the value
+		// may be a claim, the comparison is mechanical
+		if name, _ := data["name"].(string); name != "" && c.Config != nil {
+			if th := numOr(c.Config.Thresholds[name], -1); th >= 0 {
+				if v := numOr(data["value"], -1); v >= 0 {
+					data["below_threshold"] = v < th
+				}
+			}
+		}
 	case "waiver":
 		if s, _ := data["reason"].(string); strings.TrimSpace(s) == "" {
 			return errors.New("waiver requires --reason")
 		}
+	case "artifact":
+		// `status: present` is a claim the disk must confirm (write-time,
+		// the stronger layer): the file exists and is authored — not the
+		// untouched template, not a skeleton.
+		if s, _ := data["status"].(string); s == "present" {
+			rel, tmpl := c.artifactPathAndTemplate(r, data)
+			if rel == "" {
+				return errors.New("artifact status=present requires a path (on the record or its original)")
+			}
+			tmplPath := ""
+			if tmpl != "" && c.Spec.PluginRoot() != "" {
+				tmplPath = filepath.Join(c.Spec.PluginRoot(), "templates", tmpl+".md")
+			}
+			if ok, detail := contracts.ArtifactOnDisk(c.ProjectDir(), rel, tmplPath); !ok {
+				return fmt.Errorf("artifact status=present refused: %s", detail)
+			}
+		}
 	}
 	return nil
+}
+
+// artifactPathAndTemplate resolves path+template for an artifact write,
+// following `updates=` to the original record when the update omits them.
+func (c *Ctl) artifactPathAndTemplate(r *store.Run, data map[string]any) (string, string) {
+	rel, _ := data["path"].(string)
+	tmpl, _ := data["template"].(string)
+	if rel != "" && tmpl != "" {
+		return rel, tmpl
+	}
+	target, _ := data["updates"].(string)
+	if target == "" {
+		return rel, tmpl
+	}
+	env, err := c.Env(r)
+	if err != nil {
+		return rel, tmpl
+	}
+	for _, a := range env.Records("artifact") {
+		if a.ID == target {
+			if rel == "" {
+				rel, _ = a.Data["path"].(string)
+			}
+			if tmpl == "" {
+				tmpl, _ = a.Data["template"].(string)
+			}
+			break
+		}
+	}
+	return rel, tmpl
 }
 
 func (c *Ctl) verdictKnown(s string) bool {
@@ -540,17 +621,31 @@ func (c *Ctl) Approve(gate, payload string) (*store.Event, error) {
 				lastApproval = a.Order
 			}
 		}
-		ref := ""
+		// topic-aware anchoring: prefer the newest answer ABOUT this gate;
+		// tolerate topicless answers; never link an answer about a
+		// DIFFERENT gate (the anchoring race: any unrelated AskUserQuestion
+		// used to anchor a hardened approval)
+		topicRef, plainRef := "", ""
 		for _, ua := range env.Records("user-answer") {
-			if ua.Order > lastApproval {
-				ref = ua.ID // stream order: newest wins
+			if ua.Order <= lastApproval {
+				continue
 			}
+			switch topic, _ := ua.Data["topic"].(string); topic {
+			case gate:
+				topicRef = ua.ID // stream order: newest wins
+			case "":
+				plainRef = ua.ID
+			}
+		}
+		ref := topicRef
+		if ref == "" {
+			ref = plainRef
 		}
 		switch {
 		case ref != "":
 			data["answer_ref"] = ref
 		case c.Config != nil && c.Config.ConfigFlag("approvals") == "hardened":
-			return nil, fmt.Errorf("approvals are hardened for this project: pose the %s question via AskUserQuestion first (the hook records the answer), then re-run wf approve %s", gate, gate)
+			return nil, fmt.Errorf("approvals are hardened for this project: pose the %s question via AskUserQuestion first (the hook records the answer; phrase the question so it names the %s gate), then re-run wf approve %s", gate, gate, gate)
 		}
 	}
 	return c.append(r, "approval", false, "user", data)

@@ -1,7 +1,7 @@
 ---
 name: design-conformance-reviewer
 description: wf design-conformance reviewer for Build and Verify. Confirms the implementation matches the approved design/ADR — or the standing architecture for refactor intents.
-model: inherit
+model: opus
 tools: Read, Grep, Glob
 maxTurns: 40
 ---

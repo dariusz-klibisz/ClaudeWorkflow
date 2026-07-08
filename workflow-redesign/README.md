@@ -7,8 +7,9 @@
 > 51-item issues catalog, and (b) deep verification research against the current
 > Claude Code documentation (all mechanisms cited, with minimum versions).
 >
-> Status: **design** — no implementation exists yet. See
-> [09-roadmap.md](09-roadmap.md) for build order.
+> Status: **implemented** — the design was built (M0–M5 delivered; see
+> [09-roadmap.md](09-roadmap.md)). These documents remain the design record
+> and rationale; the engine and plugin in this repo are the implementation.
 
 ## Goals (from requirements)
 

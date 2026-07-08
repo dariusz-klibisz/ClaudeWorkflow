@@ -226,7 +226,34 @@ func Run(specPath string) int {
 	}))
 	aev, aerr := c4.Approve("frame", "p")
 	t.check("S10b captured answer anchors the approval", aerr == nil && aev != nil && aev.Data["answer_ref"] != nil, fmt.Sprint(aerr))
+	// topic mismatch: a DESIGN answer must not anchor a PLAN approval
+	_ = gates.CaptureQuestion(c4, input(map[string]any{
+		"hook_event_name": "PostToolUse", "tool_name": "AskUserQuestion",
+		"tool_input":    map[string]any{"questions": []any{map[string]any{"question": "Approve the design?"}}},
+		"tool_response": map[string]any{"answers": []any{map[string]any{"answer": "yes"}}},
+	}))
+	_, aerr = c4.Approve("plan", "")
+	t.check("S10c hardened approval refuses a topic-mismatched anchor", aerr != nil, "a design answer anchored a plan approval")
 
-	fmt.Printf("selftest: %d scenario checks, %d failure(s)\n", 24, len(t.failures))
+	// S11: ledger protection — the forgery paths are denied and the chain
+	// makes out-of-band writes visible.
+	r = gates.Edit(c, input(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": ".workflow/log/events.jsonl"}, "cwd": dir}))
+	t.check("S11a direct ledger edit denied", blocks(r), r.Stdout)
+	os.Setenv("WF_ENFORCE", "0")
+	r = gates.Bash(c, input(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Bash",
+		"tool_input": map[string]any{"command": `echo '{"kind":"test-run"}' >> .workflow/log/events.jsonl`}}))
+	t.check("S11b bash ledger write denied even with WF_ENFORCE=0", blocks(r), r.Stdout)
+	os.Unsetenv("WF_ENFORCE")
+	chain, cerr := st.VerifyChain()
+	t.check("S11c live ledger chain verifies clean", cerr == nil && len(chain.Breaks) == 0, fmt.Sprint(chain.Breaks))
+	if f, ferr := os.OpenFile(st.EventsPath(), os.O_APPEND|os.O_WRONLY, 0o644); ferr == nil {
+		_, _ = f.WriteString(`{"schema":1,"id":"00000000000000000000000000","seq":999,"ts":"2026-01-01T00:00:00Z","kind":"test-run","auto":true,"actor":"hook","data":{"grounded":true,"exit":0}}` + "\n")
+		_ = f.Close()
+	}
+	chain, cerr = st.VerifyChain()
+	t.check("S11d forged prev-less append breaks the chain", cerr == nil && len(chain.Breaks) > 0, fmt.Sprint(chain))
+
+	fmt.Printf("selftest: %d scenario checks, %d failure(s)\n", 29, len(t.failures))
 	return len(t.failures)
 }

@@ -12,9 +12,10 @@ lists what is still missing, with commands):
   one-paragraph restatement of the task, confirmed with the user
 - `wf approve frame --payload "<family/intent: restatement>"` — record it
   ONLY after the user explicitly confirms (never infer approval). Pose the
-  confirmation via AskUserQuestion — the hook captures the answer and
-  anchors the approval (`answer_ref`); with config `approvals: hardened`
-  an un-anchored approval is refused
+  confirmation via AskUserQuestion, naming the classification in the
+  question — the hook captures the answer, infers the topic, and anchors
+  the approval (`answer_ref`); with config `approvals: hardened` an
+  un-anchored or topic-mismatched approval is refused
 - `wf risk scan --text "<the task + restatement>" [--add signal]…` — the
   deterministic screen; add signals your judgment finds (auth, network,
   data, boundary, destructive, concurrency, ui)

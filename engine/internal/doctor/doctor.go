@@ -59,6 +59,24 @@ func Run(c *runctl.Ctl, specPath string) Report {
 		}
 	}
 
+	// ledger integrity: line hash chain + unparseable lines (store.scan
+	// tolerates torn lines silently; doctor is where they get reported)
+	if chain, err := c.Store.VerifyChain(); err != nil {
+		f = append(f, fmt.Sprintf("event log unscannable: %v", err))
+	} else {
+		if chain.Unparseable > 0 {
+			f = append(f, fmt.Sprintf("event log has %d unparseable line(s) — torn writes or foreign edits (events on those lines are invisible to gates)", chain.Unparseable))
+		}
+		const maxShown = 5
+		for i, b := range chain.Breaks {
+			if i >= maxShown {
+				f = append(f, fmt.Sprintf("… and %d more chain finding(s)", len(chain.Breaks)-maxShown))
+				break
+			}
+			f = append(f, "ledger chain: "+b)
+		}
+	}
+
 	// hook liveness: a run past Frame with many events but zero hook-captured
 	// ones means the enforcement spine is not firing (the dead-hooks
 	// incident: bootstrap failed and every gate ENOENT'd silently)
@@ -73,6 +91,15 @@ func Run(c *runctl.Ctl, specPath string) Report {
 	// only — `wf doctor --bootstrap` is the heal path.
 	hookFindings, _ := HookEngineFindings("", false)
 	f = append(f, hookFindings...)
+
+	// live-log growth: the log holds the active run + open followups only;
+	// unusual size means unclosed runs piling up (informational threshold)
+	if st, err := os.Stat(c.Store.EventsPath()); err == nil {
+		const liveLogWarnBytes = 2 << 20 // 2 MiB
+		if st.Size() > liveLogWarnBytes {
+			f = append(f, fmt.Sprintf("live event log is %.1f MiB — it should hold only the active run + open followups; close finished runs (wf run close archives and compacts)", float64(st.Size())/(1<<20)))
+		}
+	}
 
 	// idle run (E2)
 	if snap != nil && snap.Started != "" {

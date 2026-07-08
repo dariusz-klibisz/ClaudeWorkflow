@@ -22,10 +22,18 @@ Contract first:
   `@wf:design-conformance-reviewer`; ux projects add `@wf:ux-reviewer`
 - diff: run the secret scan (e.g. `gitleaks detect`) — auto-captured as
   category=secret-scan; a filtered or exit-less run never grounds
+- configured quality floors (config `thresholds`): run the suite with
+  coverage output — the hook scrapes it into a grounded metric record and
+  computes below_threshold mechanically; a floor breach blocks until a
+  re-measure clears it (manual `wf record metric` stays self-attested)
 - intent deploy: `wf record smoke-run cmd="…" exit=0 target="…"` +
   `wf record rollback-readiness --json '{"procedure":"…","trigger":"…"}'`
-- assessment: the findings report exists and is not a stub
-  (`wf record artifact … role=deliverable-report status=present`);
+- assessment: the findings report exists AND is authored on disk — create it
+  engine-mediated (`wf doc new review|research-findings|investigation-findings
+  --slug …` — these carry role=deliverable-report), author it, then flip:
+  `wf record artifact updates=<id> status=present` (present is refused while
+  the file is missing or a stub);
+  spawn `@wf:lens-reviewer` for the lens pass over the report;
   intent investigate: origin attribution recorded
 
 `wf phase exit` only when every AC has a grounded verdict and no fail is

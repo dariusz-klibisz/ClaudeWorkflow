@@ -11,14 +11,19 @@ expanding scope — and records every escape it grants.
 - **Runs and phases.** Every task is a run in one of three families —
   `diff` (code changes), `artifact` (authored documents), `assessment`
   (findings reports) — moving through Frame → Context → Design → Plan →
-  Build → Verify → Ship. Each phase has a contract: recorded facts,
-  reviewer verdicts, and user approvals that must exist before the phase
-  can exit.
+  Build → Verify → Ship. Each phase has an exit contract (recorded facts,
+  reviewer verdicts, user approvals) and an entry contract (the previous
+  phases' canonical outputs must exist before the transition — force/adopt
+  landings get re-checked); document deliverables are engine-created from
+  templates (`wf doc new`) and verified AUTHORED ON DISK, not just claimed.
 - **Four gates**, wired as Claude Code hooks: the Stop gate (can't end the
   turn with unmet obligations), task gates (can't complete a task without
   captured red→green test evidence), the verdict gate (reviewer subagents
   must end with a parseable verdict, auto-captured), and tool gates
-  (phase-skill sequencing, an always-on catastrophic-Bash net).
+  (phase-skill sequencing, an always-on catastrophic-Bash net, and
+  ledger protection: `.workflow/{log,state,runs}` and `config.json` are
+  engine-written only — tool writes are denied with no override, and the
+  event log is hash-chained so out-of-band edits surface in `wf doctor`).
 - **Grounded evidence.** Test runs are captured from the Bash tool by the
   hook itself (`auto:true`) — recognized from a built-in runner list, the
   run's own recorded verification commands (any language), or project
@@ -92,8 +97,15 @@ wf report [--run <id|current>] health signals: loops, escapes, self-attested
                                --worktrees groups across the repo's trees
 wf trace                       ship close-out findings
 wf lessons suggest|accept|reject|apply
-wf doctor [--bootstrap]        state health · verifies AND heals the hook engine
-wf selftest                    22 in-scaffold enforcement scenarios
+wf doc new <type> --slug …     16 engine-mediated document templates (ADR,
+                               design, threat-model, abuse-cases, attack-tree,
+                               test-plan, runbook, retro, findings reports…);
+                               status=present is refused until the file is
+                               authored on disk (never a stub)
+wf pack install <dir-or-yaml>  add-only contract packs (validated before merge)
+wf doctor [--bootstrap]        state health, ledger hash-chain verification ·
+                               verifies AND heals the hook engine
+wf selftest                    29 in-scaffold enforcement scenarios
 ```
 
 ## Updating

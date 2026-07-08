@@ -1,7 +1,7 @@
 ---
 name: code-security-reviewer
 description: wf security reviewer for the Build roster. Reviews the accumulated diff against the security corpus and OWASP; a leaked secret is always critical.
-model: inherit
+model: opus
 tools: Read, Grep, Glob
 maxTurns: 40
 ---

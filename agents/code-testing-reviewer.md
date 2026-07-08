@@ -1,7 +1,7 @@
 ---
 name: code-testing-reviewer
 description: wf testing reviewer for the Build roster. Verifies test quality AND that the recorded red→green evidence matches what the diff claims to do.
-model: inherit
+model: opus
 tools: Read, Grep, Glob
 maxTurns: 40
 ---

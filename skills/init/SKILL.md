@@ -15,6 +15,18 @@ Bash tool's PATH while the plugin is enabled — call it bare, no env setup.
    old `.workflow/` tree first — wf does not migrate or share state with it.
 1. `wf init` — creates `.workflow/` (config.json, log/, contracts.d/,
    .gitignore) and records the plugin version.
+   Then ask the user about the standing project profile and set the
+   answers in `.workflow/config.json` (config edits are the USER's — the
+   engine denies agent tool-writes to it, so gather answers first and have
+   the user confirm the final JSON):
+   - `ux: true` for UI-bearing projects (arms the UX lane)
+   - `flags`: `pii`, `internet_facing`, `public_api` (each `true` arms its
+     risk signals on EVERY run), `approvals: "hardened"` (refuse un-anchored
+     approvals)
+   - `thresholds`: e.g. `{"coverage": 80}` — the hook scrapes coverage from
+     runner output and a measured floor breach blocks Verify
+   - regulated/company contract packs: `wf pack install <dir-or-yaml>`
+     (validated add-only merge into `contracts.d/`)
 2. **Merge** (never overwrite) `.claude/settings.json` so collaborators get
    the plugin on folder trust, and `wf` calls need no permission prompts.
    The auto-mode classifier may block this write as "Self-Modification"
@@ -50,7 +62,8 @@ Bash tool's PATH while the plugin is enabled — call it bare, no env setup.
    - Work happens inside runs: start every task with /wf:dev.
    - .workflow/ on disk is the source of truth; after compaction or resume,
      trust the injected [wf] status block over memory.
-   - Record facts only via wf commands — never edit .workflow/state|log by hand.
+   - Record facts only via wf commands — .workflow/{log,state,runs} and
+     config.json are engine-written and tool-protected (denied, no override).
    - Deliverable documents go under docs/.
    - Audited escapes: /wf:park (honest stop), /wf:force (bypass, escalates).
    <!-- wf:end -->

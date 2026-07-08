@@ -105,10 +105,44 @@ func OriginDiscover(c *runctl.Ctl, projectDir, path, text string) (string, error
 	first := strings.SplitN(lines, "\n", 2)[0]
 	commit := strings.Fields(first)[0]
 	attribution := fmt.Sprintf("candidate origin (git pickaxe/history): %s", first)
+	// the ledger beats git heuristics: a commit-origin record (this run or an
+	// archived one) names the run that produced the commit — survives
+	// squash/rebase where git history rewrites lose the trail
+	if run := commitOriginRun(c, commit); run != "" {
+		attribution += fmt.Sprintf(" — originating run %s (ledger commit-origin)", run)
+	}
 	if _, err := c.Record("origin", map[string]any{"commit": commit, "attribution": attribution}, true, "engine"); err != nil {
 		return "", err
 	}
 	return "origin recorded: " + attribution + "\ncandidates:\n" + lines, nil
+}
+
+// commitOriginRun searches live + archived commit-origin records for a
+// commit sha (prefix-tolerant both ways: git output is abbreviated).
+func commitOriginRun(c *runctl.Ctl, sha string) string {
+	if sha == "" {
+		return ""
+	}
+	evs, err := c.Store.AllEvents()
+	if err != nil {
+		return ""
+	}
+	for _, e := range evs {
+		if e.Kind != "commit-origin" {
+			continue
+		}
+		full, _ := e.Data["commit"].(string)
+		if full == "" {
+			continue
+		}
+		if strings.HasPrefix(full, sha) || strings.HasPrefix(sha, full) {
+			if run, _ := e.Data["run"].(string); run != "" {
+				return run
+			}
+			return e.Run
+		}
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------------------
@@ -124,11 +158,21 @@ var docTypes = map[string]docSpec{
 	"adr":               {dest: "docs/architecture/adr/<nnnn>-<slug>.md"},
 	"design":            {dest: "docs/design/<slug>.md"},
 	"threat-model":      {dest: "docs/design/threat-model-<slug>.md"},
+	"abuse-cases":       {dest: "docs/design/abuse-cases-<slug>.md"},
+	"attack-tree":       {dest: "docs/design/attack-tree-<slug>.md"},
 	"ux":                {dest: "docs/design/ux-<slug>.md"},
-	"review":            {dest: "docs/reviews/<slug>.md"},
+	"review":            {dest: "docs/reviews/<slug>.md", role: "deliverable-report"},
+	"red-team-report":   {dest: "docs/reviews/red-team-<slug>.md"},
+	"test-plan":         {dest: "docs/test/<slug>.md"},
+	"runbook":           {dest: "docs/operations/runbook-<slug>.md"},
 	"incident":          {dest: "docs/incidents/<slug>.md"},
 	"release-notes":     {dest: "docs/releases/<slug>.md"},
 	"delivery-manifest": {dest: "docs/releases/delivery-manifest-<slug>.md", role: "delivery-manifest"},
+	"retro":             {dest: "docs/retros/<slug>.md"},
+	"research-findings": {
+		dest: "docs/research/<slug>.md", role: "deliverable-report"},
+	"investigation-findings": {
+		dest: "docs/investigations/<slug>.md", role: "deliverable-report"},
 }
 
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)

@@ -130,6 +130,8 @@ func run(args []string) int {
 		return originCmd(ctl, projectDir, rest)
 	case "doc":
 		return docCmd(ctl, projectDir, rest)
+	case "pack":
+		return packCmd(ctl, rest)
 	default:
 		fmt.Fprintf(os.Stderr, "wf: unknown command %q (wf help)\n", cmd)
 		return 3
@@ -852,7 +854,7 @@ func originCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
 
 func docCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
 	if len(rest) < 2 || rest[0] != "new" {
-		fmt.Fprintln(os.Stderr, "wf doc new adr|design|threat-model|ux|review|incident|release-notes|delivery-manifest --slug …")
+		fmt.Fprintln(os.Stderr, "wf doc new adr|design|threat-model|abuse-cases|attack-tree|ux|review|red-team-report|test-plan|runbook|incident|release-notes|delivery-manifest|retro|research-findings|investigation-findings --slug …")
 		return 3
 	}
 	fs := flag.NewFlagSet("doc", flag.ContinueOnError)
@@ -865,6 +867,25 @@ func docCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
 		root = ctl.Spec.PluginRoot()
 	}
 	out, err := ops.DocNew(ctl, root, projectDir, rest[1], *slug)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wf:", err)
+		return 2
+	}
+	fmt.Println(out)
+	return 0
+}
+
+func packCmd(ctl *runctl.Ctl, rest []string) int {
+	if len(rest) < 2 || rest[0] != "install" {
+		fmt.Fprintln(os.Stderr, "wf pack install <dir-or-yaml> — add-only contract pack into .workflow/contracts.d (records x-*, contracts local.*)")
+		return 3
+	}
+	specPath, err := resolveSpecPath()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wf:", err)
+		return 3
+	}
+	out, err := ops.PackInstall(ctl, specPath, rest[1])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wf:", err)
 		return 2
@@ -910,6 +931,7 @@ records:         wf record <kind> [--json '{…}'] [key=value …]
 grounding:       wf deps check · wf origin discover [--path …] [--text …]
                  wf doc new <type> --slug … · wf trace
 lessons:         wf lessons suggest|accept <id>|reject <id>|apply
+packs:           wf pack install <dir-or-yaml>   (add-only contracts.d extension)
 introspection:   wf status · wf report [--json] [--run <id|current>] [--worktrees]
                  wf statusline (statusLine command; reads stdin JSON)
                  wf doctor [--bootstrap] · wf selftest · wf version

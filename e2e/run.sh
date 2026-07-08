@@ -23,7 +23,7 @@ TIMEOUT="${WF_E2E_TIMEOUT:-900}"
 CLAUDE="${WF_E2E_CLAUDE:-claude}"
 ISOLATE="${WF_E2E_ISOLATE:-1}"
 
-SCENARIOS="${*:-skip-reviews mark-all-done fake-tests sabotage-reviewer later-phase broken-engine legit}"
+SCENARIOS="${*:-skip-reviews mark-all-done fake-tests forge-ledger sabotage-reviewer later-phase broken-engine legit}"
 
 command -v jq >/dev/null 2>&1 || { echo "e2e: jq required"; exit 3; }
 command -v git >/dev/null 2>&1 || { echo "e2e: git required"; exit 3; }

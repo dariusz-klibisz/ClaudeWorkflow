@@ -110,26 +110,32 @@ type RecordMatch struct {
 
 // Predicate names — the closed vocabulary.
 const (
-	PredRecordExists = "record-exists"
-	PredLinkedRecord = "linked-record"
-	PredVerdictIn    = "verdict-in"
-	PredApproval     = "approval"
-	PredNoOpen       = "no-open"
-	PredPerEach      = "per-each"
-	PredAnyOf        = "any-of"
-	PredRedGreen     = "red-green"
+	PredRecordExists    = "record-exists"
+	PredLinkedRecord    = "linked-record"
+	PredVerdictIn       = "verdict-in"
+	PredApproval        = "approval"
+	PredNoOpen          = "no-open"
+	PredPerEach         = "per-each"
+	PredAnyOf           = "any-of"
+	PredRedGreen        = "red-green"
+	PredArtifactPresent = "artifact-present"
 )
 
 var predicates = map[string]bool{
 	PredRecordExists: true, PredLinkedRecord: true, PredVerdictIn: true,
 	PredApproval: true, PredNoOpen: true, PredPerEach: true,
-	PredAnyOf: true, PredRedGreen: true,
+	PredAnyOf: true, PredRedGreen: true, PredArtifactPresent: true,
 }
 
 type ContractItem struct {
-	ID          string         `yaml:"id"`
-	Phase       string         `yaml:"phase"`
-	Families    []string       `yaml:"families"` // empty = all
+	ID       string   `yaml:"id"`
+	Phase    string   `yaml:"phase"`
+	Families []string `yaml:"families"` // empty = all
+	// Stage: "" or "exit" = the phase-exit contract (the default);
+	// "entry" = a phase-INPUT check, evaluated when entering the phase
+	// (blocking at the previous phase's exit; re-checked by the skill gate
+	// on adopt/resume paths that bypass the transition).
+	Stage       string         `yaml:"stage"`
 	When        *When          `yaml:"when"`
 	Predicate   string         `yaml:"predicate"`
 	Params      map[string]any `yaml:"params"`
@@ -403,6 +409,11 @@ func (s *Spec) Validate() error {
 		if c.Remediation == "" {
 			fail("contract %q: remediation required", c.ID)
 		}
+		switch c.Stage {
+		case "", "exit", "entry":
+		default:
+			fail("contract %q: unknown stage %q (exit|entry)", c.ID, c.Stage)
+		}
 		if c.When != nil && c.When.Records != nil && !kinds[c.When.Records.Kind] {
 			fail("contract %q: when.records kind %q undeclared", c.ID, c.When.Records.Kind)
 		}
@@ -467,6 +478,15 @@ func (s *Spec) validatePredicate(id, pred string, params map[string]any, kinds, 
 	case PredRedGreen:
 		if _, ok := params["link"].(string); !ok {
 			fail("contract %q: red-green requires link", id)
+		}
+	case PredArtifactPresent:
+		// optional narrowing filters; both absent = any artifact record
+		for _, key := range []string{"template", "role"} {
+			if v, ok := params[key]; ok {
+				if _, isStr := v.(string); !isStr {
+					fail("contract %q: artifact-present %s must be a string", id, key)
+				}
+			}
 		}
 	case PredPerEach:
 		kindOf("kind")
@@ -541,12 +561,25 @@ func (s *Spec) NextPhase(family, cur string) string {
 	return ""
 }
 
-// ContractsFor returns the contract items applying to (phase, family).
-// `when` conditions are evaluated later, by the evaluator, against run state.
+// ContractsFor returns the phase-EXIT contract items applying to
+// (phase, family). `when` conditions are evaluated later, by the evaluator,
+// against run state.
 func (s *Spec) ContractsFor(phase, family string) []ContractItem {
+	return s.contractsForStage(phase, family, false)
+}
+
+// EntryContractsFor returns the phase-ENTRY input items for (phase, family).
+func (s *Spec) EntryContractsFor(phase, family string) []ContractItem {
+	return s.contractsForStage(phase, family, true)
+}
+
+func (s *Spec) contractsForStage(phase, family string, entry bool) []ContractItem {
 	var out []ContractItem
 	for _, c := range s.Contracts {
 		if c.Phase != phase {
+			continue
+		}
+		if (c.Stage == "entry") != entry {
 			continue
 		}
 		if len(c.Families) > 0 {

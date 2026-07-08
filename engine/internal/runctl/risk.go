@@ -61,15 +61,34 @@ func keywordRegexps() map[string]*regexp.Regexp {
 	return kwRe
 }
 
-// RiskScan runs the keyword screen over text, merges agent-added signals, and
-// records the risk event (signals[] + lens bindings). The "user" lens is
-// always selected.
+// standingFlagSignals maps project config flags (.workflow/config.json
+// `flags`) to always-on risk signals: a project that declares it handles PII
+// or faces the internet gets those lenses on EVERY run, not only when the
+// task text happens to mention a keyword.
+var standingFlagSignals = map[string][]string{
+	"pii":             {"data"},
+	"internet_facing": {"network", "boundary"},
+	"public_api":      {"network", "boundary"},
+}
+
+// RiskScan runs the keyword screen over text, merges agent-added signals and
+// standing project flags, and records the risk event (signals[] + lens
+// bindings). The "user" lens is always selected.
 func (c *Ctl) RiskScan(text string, added []string) (signals, lenses []string, err error) {
 	low := strings.ToLower(text)
 	set := map[string]bool{}
 	for sig, re := range keywordRegexps() {
 		if re.MatchString(low) {
 			set[sig] = true
+		}
+	}
+	if c.Config != nil {
+		for flag, sigs := range standingFlagSignals {
+			if v, _ := c.Config.ConfigFlag(flag).(bool); v {
+				for _, s := range sigs {
+					set[s] = true
+				}
+			}
 		}
 	}
 	for _, a := range added {

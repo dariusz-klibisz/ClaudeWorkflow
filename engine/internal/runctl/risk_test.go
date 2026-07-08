@@ -75,3 +75,47 @@ func TestRiskScanRealSignals(t *testing.T) {
 		}
 	}
 }
+
+func TestRiskScanStandingFlags(t *testing.T) {
+	c := riskCtl(t)
+	c.Config = &store.Config{Flags: map[string]any{"pii": true, "internet_facing": true}}
+	_, _ = c.RunStart("diff", "new")
+	signals, lenses, err := c.RiskScan("compute prime numbers", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"data": false, "network": false, "boundary": false}
+	for _, s := range signals {
+		if _, ok := want[s]; ok {
+			want[s] = true
+		}
+	}
+	for k, seen := range want {
+		if !seen {
+			t.Errorf("standing flags must arm signal %q: %v", k, signals)
+		}
+	}
+	hasLens := func(l string) bool {
+		for _, x := range lenses {
+			if x == l {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasLens("security") || !hasLens("adversarial") {
+		t.Errorf("standing signals must bind their lenses: %v", lenses)
+	}
+}
+
+func TestRiskScanFlagsOffAddNothing(t *testing.T) {
+	c := riskCtl(t)
+	_, _ = c.RunStart("diff", "new")
+	signals, _, err := c.RiskScan("compute prime numbers", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(signals) != 0 {
+		t.Errorf("no flags, benign text: want no signals, got %v", signals)
+	}
+}

@@ -37,6 +37,7 @@ const stopSelfCap = 3 // self-imposed, under the platform's 8
 
 func Stop(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	if hookio.EnforceDisabled(in) {
+		recordEnforceOff(c, in, "stop")
 		return hookio.StopAllowMessage("[wf] WF_ENFORCE=0 — Stop gate downgraded to a warning (recorded)")
 	}
 	r, err := c.Store.LoadRun()
@@ -110,9 +111,48 @@ func stopBlockCounted(c *runctl.Ctl, in *hookio.Input, ids []string, reason stri
 	}
 	_ = c.Store.SaveLocal("stop-gate.json", &st)
 	if in.StopHookActive && st.Count > stopSelfCap {
-		return hookio.StopAllowMessage("[wf] the same items blocked " + fmt.Sprint(stopSelfCap) + "× — allowing the stop. If stuck, /wf:park records the honest state")
+		// The release valve is itself an escape — record it (once per
+		// identical finding set) so wf report surfaces it, never silence.
+		if st.Count == stopSelfCap+1 {
+			_, _ = c.Record("escape", map[string]any{
+				"action": "stop-cap",
+				"reason": "stop-gate self-cap released after " + fmt.Sprint(stopSelfCap) + " identical blocks: " + hash,
+			}, true, "hook")
+		}
+		return hookio.StopAllowMessage("[wf] the same items blocked " + fmt.Sprint(stopSelfCap) + "× — allowing the stop (recorded). If stuck, /wf:park records the honest state")
 	}
 	return hookio.StopBlock(reason)
+}
+
+// enforceOffState rate-limits enforce-off escape events to one per gate per
+// session — degraded sequencing gates fire on every tool call.
+type enforceOffState struct {
+	SessionID string          `json:"session_id"`
+	Gates     map[string]bool `json:"gates"`
+}
+
+// recordEnforceOff appends the escape event the WF_ENFORCE=0 downgrade paths
+// promised ("recorded") but never wrote. The provenance guard already proved
+// the env came from the user; the hook is the observer, hence actor "hook".
+func recordEnforceOff(c *runctl.Ctl, in *hookio.Input, gate string) {
+	var st enforceOffState
+	_ = c.Store.LoadLocal("enforce-off.json", &st)
+	if st.SessionID != in.SessionID || st.Gates == nil {
+		st = enforceOffState{SessionID: in.SessionID, Gates: map[string]bool{}}
+	}
+	if st.Gates[gate] {
+		return
+	}
+	if r, err := c.Store.LoadRun(); err != nil || r == nil || r.Status != "active" {
+		return // no run to attach the event to — nothing being escaped
+	}
+	if _, err := c.Record("escape", map[string]any{
+		"action": "enforce-off", "reason": "WF_ENFORCE=0 set by the user", "gate": gate,
+	}, true, "hook"); err != nil {
+		return
+	}
+	st.Gates[gate] = true
+	_ = c.Store.SaveLocal("enforce-off.json", &st)
 }
 
 func reviewerInFlight(c *runctl.Ctl, in *hookio.Input) bool {
@@ -443,6 +483,7 @@ func tailFile(path string, n int64) string {
 // legal loop target). Sequencing gate: fails open + loud.
 func Skill(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	if hookio.EnforceDisabled(in) {
+		recordEnforceOff(c, in, "skill")
 		return hookio.Allow()
 	}
 	name := skillName(in)
@@ -466,6 +507,14 @@ func Skill(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 		return hookio.Deny("No active run — phase procedures run inside a run. Start with /wf:dev.")
 	}
 	if target == r.Phase {
+		// entry re-check: adopt/resume/force paths can land in a phase whose
+		// inputs were never produced — the transition gate never saw them
+		if env, err := c.Env(r); err == nil {
+			if entry, err := contracts.EvaluateEntry(env, target); err == nil && len(entry) > 0 {
+				return hookio.Deny(fmt.Sprintf("Phase %s is missing its inputs: %s → %s (deliberate skip: wf contract waive %s --reason …)",
+					target, entry[0].ID, entry[0].Remediation, entry[0].ID))
+			}
+		}
 		return hookio.Allow()
 	}
 	for _, t := range c.Spec.Loops.Targets {
@@ -496,14 +545,38 @@ func skillOf(c *runctl.Ctl, phase string) string {
 // exemptEditPrefixes are path anchors (never basenames — the C7 fix).
 var exemptEditPrefixes = []string{".workflow/", "docs/", ".claude/", "CLAUDE.md", "AGENTS.md"}
 
-// Edit is the stray-edit guard: project files change only inside an active
-// run. Sequencing gate: fails open + loud.
-func Edit(c *runctl.Ctl, in *hookio.Input) hookio.Result {
-	if hookio.EnforceDisabled(in) {
-		return hookio.Allow()
+// protectedStatePaths are the engine-written ledger, snapshot, archives and
+// project config: the evidence chain. Agents never write these through
+// tools — the engine writes them from its own process (wf record/…), so a
+// tool-level deny costs nothing legitimate and closes the forgery path
+// (an agent minting `auto:true grounded` events directly). Unconditional:
+// active run or not, WF_ENFORCE or not.
+var protectedStatePaths = []string{
+	".workflow/log/", ".workflow/state/", ".workflow/runs/", ".workflow/config.json",
+}
+
+func protectedStatePath(rel string) bool {
+	for _, p := range protectedStatePaths {
+		if strings.HasPrefix(rel, p) || rel == strings.TrimSuffix(p, "/") {
+			return true
+		}
 	}
+	return false
+}
+
+// Edit is the stray-edit guard: project files change only inside an active
+// run. Sequencing gate: fails open + loud — EXCEPT the protected-state deny,
+// which is data protection and has no escape hatch.
+func Edit(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	path := in.ToolInputField("file_path")
 	rel := relToProject(path, in.CWD)
+	if protectedStatePath(rel) {
+		return hookio.Deny("wf state under " + rel + " is engine-written (no override): use wf record/approve/… — config.json changes belong to the user")
+	}
+	if hookio.EnforceDisabled(in) {
+		recordEnforceOff(c, in, "edit")
+		return hookio.Allow()
+	}
 	for _, p := range exemptEditPrefixes {
 		if strings.HasPrefix(rel, p) {
 			return hookio.Allow()
@@ -541,14 +614,51 @@ var catastrophic = []*regexp.Regexp{
 	regexp.MustCompile(`\bchmod\s+(-[a-zA-Z]*R[a-zA-Z]*\s+)?777\s+/(\s|$)`),
 }
 
+// protectedTarget matches the protected .workflow state paths inside a
+// command string (relative or absolute).
+var protectedTarget = regexp.MustCompile(`(^|[/\s"'=])\.workflow/(log|state|runs)(/|\s|"|'|$)|(^|[/\s"'=])\.workflow/config\.json`)
+
+// stateWriters are Bash constructs able to write/destroy files. A segment
+// that both starts with (or contains, for redirects) one of these and
+// mentions a protected path is denied. Reading (cat/grep/less) stays free —
+// the ledger is meant to be read.
+var (
+	redirectIntoState = regexp.MustCompile(`>>?\s*['"]?[^|;&<>\s'"]*\.workflow/(log/|state/|runs/|config\.json)`)
+	writerHeads       = []string{"tee", "sed", "cp", "mv", "rm", "install", "rsync", "truncate", "dd", "ln", "touch", "chmod", "chown"}
+)
+
+// wfStateTamper detects Bash writes into the protected .workflow state —
+// the forgery path the Edit gate cannot see. Heuristic on purpose: the
+// hash-chained ledger (doctor) is the backstop for what slips past.
+func wfStateTamper(cmd string) bool {
+	if redirectIntoState.MatchString(cmd) {
+		return true
+	}
+	for _, seg := range segmentSplit.Split(cmd, -1) {
+		for _, p := range strings.Split(seg, "|") {
+			head := commandHead(strings.TrimSpace(p))
+			for _, w := range writerHeads {
+				if (head == w || strings.HasPrefix(head, w+" ")) && protectedTarget.MatchString(p) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // Bash is the catastrophic-command net (deny; duplicated as permission rules
-// where expressible).
+// where expressible). Store-free and always-on: it also protects the wf
+// ledger from direct writes even before adoption state can be read.
 func Bash(_ *runctl.Ctl, in *hookio.Input) hookio.Result {
 	cmd := in.ToolInputField("command")
 	for _, re := range catastrophic {
 		if re.MatchString(cmd) {
 			return hookio.Deny("Catastrophic command blocked by wf (no override): " + re.String())
 		}
+	}
+	if wfStateTamper(cmd) {
+		return hookio.Deny("Direct writes into .workflow/{log,state,runs,config.json} are blocked (no override): the ledger is engine-written — use wf record/approve/…; config.json changes belong to the user")
 	}
 	return hookio.Allow()
 }
@@ -598,6 +708,9 @@ var genericInterpreters = map[string]bool{
 
 var filterPipe = regexp.MustCompile(`\|\s*(grep|head|tail|awk|sed|rg)\b`)
 
+// leadingCd matches exactly one `cd <dir> &&` prefix (quoted dirs included).
+var leadingCd = regexp.MustCompile(`^cd\s+("[^"]*"|'[^']*'|[^\s&|;]+)\s*&&\s*(.+)$`)
+
 // CaptureTest turns recognized runner invocations into grounded test-run
 // records. Rules (G1): match the head only, skip wf self-calls, treat
 // filter-pipes and missing exit codes as ungrounded. Recognition, in order:
@@ -615,7 +728,15 @@ func CaptureTest(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	}
 	env, envErr := c.Env(r)
 
-	head := commandHead(cmd)
+	// `cd <dir> && <runner>` is the single chained form common enough to
+	// honor (it drove users toward the config-runners escape): strip ONE
+	// leading cd for recognition and grounding. Honest bound: a failing cd
+	// reports its own exit — a false red at worst, never a false green.
+	effective := cmd
+	if m := leadingCd.FindStringSubmatch(cmd); m != nil {
+		effective = strings.TrimSpace(m[2])
+	}
+	head := commandHead(effective)
 	var category, ac string
 	matched := false
 	for _, rh := range runnerHeads {
@@ -645,7 +766,7 @@ func CaptureTest(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 		return hookio.Allow() // a ctrl-C'd run is not evidence, red or green
 	}
 	exit, hasExit := commandExit(in)
-	grounded := hasExit && !filterPipe.MatchString(cmd) && !chained(cmd)
+	grounded := hasExit && !filterPipe.MatchString(effective) && !chained(effective)
 	data := map[string]any{"cmd": cmd, "grounded": grounded}
 	if hasExit {
 		data["exit"] = exit
@@ -670,7 +791,62 @@ func CaptureTest(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	if _, err := c.Record("test-run", data, true, "hook"); err != nil {
 		return hookio.Allow() // capture must never break the loop
 	}
+	// grounded green runner output is the one honest source for coverage —
+	// scrape it (ClaudeInit's proven extraction, engine-native) so the
+	// verify.quality-floor contract runs on measured numbers, not claims
+	if grounded && hasExit && exit == 0 && envErr == nil {
+		if cov, ok := coverageFromResponse(in.ToolResponse); ok {
+			recordCoverage(c, env, cov)
+		}
+	}
 	return hookio.Allow()
+}
+
+// coveragePatterns match the coverage summary lines of the common runners.
+// First match wins; the value is the percentage.
+var coveragePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`coverage: (\d+(?:\.\d+)?)% of statements`),   // go test -cover
+	regexp.MustCompile(`(?m)^TOTAL\s+.*?(\d+(?:\.\d+)?)%`),           // coverage.py / pytest-cov
+	regexp.MustCompile(`(?m)^All files\s*\|\s*(\d+(?:\.\d+)?)\s*\|`), // jest/istanbul text table
+	regexp.MustCompile(`(\d+(?:\.\d+)?)% coverage`),                  // cargo-tarpaulin
+	regexp.MustCompile(`lines\.+:\s*(\d+(?:\.\d+)?)%`),               // lcov
+}
+
+func coverageFromResponse(raw json.RawMessage) (float64, bool) {
+	if len(raw) == 0 {
+		return 0, false
+	}
+	var m struct {
+		Stdout string `json:"stdout"`
+		Stderr string `json:"stderr"`
+	}
+	if json.Unmarshal(raw, &m) != nil {
+		return 0, false
+	}
+	out := m.Stdout + "\n" + m.Stderr
+	for _, re := range coveragePatterns {
+		if hit := re.FindStringSubmatch(out); hit != nil {
+			if v, err := strconv.ParseFloat(hit[1], 64); err == nil && v >= 0 && v <= 100 {
+				return v, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// recordCoverage records the grounded coverage metric, UPDATING the run's
+// existing coverage record so a re-measure supersedes (no stale
+// below_threshold=true blocking after the fix). below_threshold is computed
+// by runctl's write-time validation against config.thresholds.
+func recordCoverage(c *runctl.Ctl, env *contracts.Env, cov float64) {
+	data := map[string]any{"name": "coverage", "value": cov, "grounded": true}
+	for _, m := range env.Records("metric") {
+		if n, _ := m.Data["name"].(string); n == "coverage" {
+			data["updates"] = m.ID
+			break
+		}
+	}
+	_, _ = c.Record("metric", data, true, "hook")
 }
 
 // strategyMatch recognizes test invocations from the run's own
@@ -972,8 +1148,45 @@ func CaptureQuestion(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 		return hookio.Allow()
 	}
 	data := map[string]any{"question": clip(question, 300), "answer": clip(answer, 300)}
+	if topic := questionTopic(question); topic != "" {
+		data["topic"] = topic
+	}
 	_, _ = c.Record("user-answer", data, true, "hook")
 	return hookio.Allow()
+}
+
+// topicKeywords maps approval gates to the words an approval question about
+// that gate carries (the skills phrase them so). Used by wf approve to
+// anchor to the RIGHT answer: before topics, "the newest answer after the
+// last approval" let any unrelated question anchor a hardened approval.
+var topicKeywords = map[string][]string{
+	"frame":     {"classif", "family", "intent", "framing", "frame"},
+	"scope":     {"scope", "requirement", "assumption"},
+	"design":    {"design", "option", "architecture"},
+	"plan":      {"plan", "task breakdown", "verification strategy"},
+	"deferral":  {"defer"},
+	"deviation": {"deviation", "depart"},
+	"lesson":    {"lesson"},
+}
+
+// questionTopic infers the single approval gate a question is about;
+// ambiguous questions (words of several gates) get no topic — a wrong
+// anchor is worse than none.
+func questionTopic(q string) string {
+	low := strings.ToLower(q)
+	found := ""
+	for gate, words := range topicKeywords {
+		for _, w := range words {
+			if strings.Contains(low, w) {
+				if found != "" && found != gate {
+					return ""
+				}
+				found = gate
+				break
+			}
+		}
+	}
+	return found
 }
 
 // questionText joins the question strings from AskUserQuestion tool_input

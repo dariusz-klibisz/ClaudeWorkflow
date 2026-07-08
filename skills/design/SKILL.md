@@ -11,7 +11,9 @@ Trivial diff with no design decisions? `wf phase waive design --reason "…"`
 - `wf record option-set stage=system --json '{"candidates":[…],"selected":"…","rejected":[{"id":"…","reason":"…"}]}'`
   — 2–4 GENUINE candidates with selection and rejection reasons
 - `wf record option-set stage=software --json …` — same at software level
-- ux-enabled projects with UI-bearing change: `stage=ux` set too
+- ux-enabled projects with UI-bearing change: `stage=ux` set too, authored
+  by `@wf:ux-designer` and reviewed by `@wf:ux-design-reviewer` (fix to
+  clean; a11y criticals are unwaivable — `n/a` verdict for no-UI changes)
 - spawn `@wf:design-reviewer` on the SELECTED option — fix findings until
   its verdict is clean (verdicts auto-captured; a failing auto verdict is
   sticky — fix the design, re-run the reviewer; manual records cannot
@@ -26,7 +28,8 @@ Trivial diff with no design decisions? `wf phase waive design --reason "…"`
   author it, then flip the record:
   `wf record artifact updates=<id> status=present`
 - `wf approve design --payload "<selected options + risks + testability>"`
-  — pose the confirmation via AskUserQuestion (the hook anchors the answer)
+  — pose the confirmation via AskUserQuestion, naming the DESIGN in the
+  question (the hook infers the topic and anchors the answer to this gate)
   — after presenting to the user
 
 Loop re-entries (from Verify) must reference previously rejected option IDs
