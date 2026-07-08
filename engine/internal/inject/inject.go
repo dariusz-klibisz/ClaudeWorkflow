@@ -145,8 +145,12 @@ func Agent(c *runctl.Ctl, agentName string) (string, error) {
 			verb = "judging"
 		}
 		fmt.Fprintf(&b, "reference corpus for this %s (read before %s; cite file+rule):\n", role, verb)
+		// Briefing paths render /-separated on EVERY platform: Windows
+		// tools accept them, and the agent-visible text stays deterministic
+		// (filepath.Join's backslashes broke the corpus assertions on
+		// Windows CI).
 		for _, p := range ag.Corpus {
-			fmt.Fprintf(&b, "  - %s\n", filepath.Join(root, filepath.FromSlash(p)))
+			fmt.Fprintf(&b, "  - %s\n", filepath.ToSlash(filepath.Join(root, filepath.FromSlash(p))))
 		}
 		b.WriteString("corpus absent/unreadable ⇒ use your own knowledge and say so in the output.\n")
 	}
@@ -183,7 +187,7 @@ func complianceBriefing(c *runctl.Ctl, b *strings.Builder) {
 	if len(docs) > 0 {
 		b.WriteString("standard checklists (installed with the packs — read before judging; cite clause IDs):\n")
 		for _, d := range docs {
-			fmt.Fprintf(b, "  - %s\n", d)
+			fmt.Fprintf(b, "  - %s\n", filepath.ToSlash(d)) // /-separated on every platform, like the corpus routes
 		}
 	} else {
 		b.WriteString("no pack checklists found under .workflow/packs — review from your own knowledge, say so, and cap status at changes-required.\n")

@@ -116,6 +116,12 @@ func TestAgentBriefsGatingReviewer(t *testing.T) {
 			t.Errorf("adversary briefing missing %q:\n%s", want, out)
 		}
 	}
+	// briefing paths are /-separated on every platform (vacuous on unix,
+	// the real regression guard on Windows CI where filepath.Join used to
+	// leak backslashes into the corpus routes)
+	if strings.Contains(out, `\`) {
+		t.Errorf("briefing must not carry backslash paths:\n%s", out)
+	}
 }
 
 // Agents that are neither gating nor corpus-routed stay silent.
