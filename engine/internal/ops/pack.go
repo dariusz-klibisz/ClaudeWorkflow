@@ -1,9 +1,12 @@
 // Contract packs (09 Q1): a pack is a directory (or single file) of
 // contracts.d-shaped YAML — record kinds namespaced x-*, contract items
-// namespaced local.* — plus any documentation. `wf pack install` validates
-// the merged result strictly against a temp mirror of contracts.d (the same
-// zero-risk pattern as lesson acceptance), then copies the files in. The
-// merge stays add-only: a pack can never weaken or replace shipped items.
+// namespaced local.* — plus any documentation (.md, copied to
+// .workflow/packs/<pack>/ so pack-referencing agents like the
+// compliance-reviewer can read their checklists project-side). `wf pack
+// install` validates the merged result strictly against a temp mirror of
+// contracts.d (the same zero-risk pattern as lesson acceptance), then
+// copies the files in. The merge stays add-only: a pack can never weaken
+// or replace shipped items.
 package ops
 
 import (
@@ -33,8 +36,8 @@ func PackInstall(c *runctl.Ctl, specPath, src string) (string, error) {
 		return "", fmt.Errorf("cannot derive a pack name from %q", src)
 	}
 
-	// collect the pack's yaml files
-	var files []string
+	// collect the pack's yaml files (+ .md docs when a directory)
+	var files, docs []string
 	if st.IsDir() {
 		entries, err := os.ReadDir(src)
 		if err != nil {
@@ -44,8 +47,11 @@ func PackInstall(c *runctl.Ctl, specPath, src string) (string, error) {
 			if e.IsDir() {
 				continue
 			}
-			if strings.HasSuffix(e.Name(), ".yaml") || strings.HasSuffix(e.Name(), ".yml") {
+			switch {
+			case strings.HasSuffix(e.Name(), ".yaml") || strings.HasSuffix(e.Name(), ".yml"):
 				files = append(files, filepath.Join(src, e.Name()))
+			case strings.HasSuffix(e.Name(), ".md"):
+				docs = append(docs, filepath.Join(src, e.Name()))
 			}
 		}
 	} else {
@@ -120,6 +126,26 @@ func PackInstall(c *runctl.Ctl, specPath, src string) (string, error) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	return fmt.Sprintf("pack %s installed: contracts.d/{%s} — commit .workflow/contracts.d so the pack travels with the repo (remove the files to uninstall)",
-		pack, strings.Join(names, ", ")), nil
+
+	// docs travel with the pack: .workflow/packs/<pack>/ (committed) — the
+	// compliance-reviewer's injected checklist paths point here
+	docNote := ""
+	if len(docs) > 0 {
+		packDir := filepath.Join(c.Store.Root, "packs", pack)
+		if err := os.MkdirAll(packDir, 0o755); err != nil {
+			return "", err
+		}
+		for _, d := range docs {
+			raw, err := os.ReadFile(d)
+			if err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(filepath.Join(packDir, filepath.Base(d)), raw, 0o644); err != nil {
+				return "", err
+			}
+		}
+		docNote = fmt.Sprintf(" · %d doc(s) → .workflow/packs/%s/", len(docs), pack)
+	}
+	return fmt.Sprintf("pack %s installed: contracts.d/{%s}%s — commit .workflow/contracts.d (and packs/) so the pack travels with the repo (remove the files to uninstall)",
+		pack, strings.Join(names, ", "), docNote), nil
 }

@@ -603,8 +603,12 @@ func (c *Ctl) hasApproval(r *store.Run, gate string) bool {
 // and reported (honest bounds, 04 §8). Anchoring (04 §8.1): when a
 // hook-captured user-answer exists after this gate's previous approval, it
 // is linked via answer_ref — still not proof a human typed it, but one
-// layer harder to fabricate. With config `approvals: hardened`, an approval
-// WITHOUT such an answer is refused (opt-in friction, 09 Q3).
+// layer harder to fabricate. Two opt-in friction levels (09 Q3):
+//   - `approvals: hardened` — an approval WITHOUT such an answer is refused.
+//   - `approvals: challenge` — the anchoring answer must additionally
+//     contain a single-use code the engine shows ONLY in the user's
+//     statusline (never on stdout): the model cannot manufacture its own
+//     anchor because it never sees the code before the user types it.
 func (c *Ctl) Approve(gate, payload string) (*store.Event, error) {
 	r, err := c.MustRun()
 	if err != nil {
@@ -613,6 +617,10 @@ func (c *Ctl) Approve(gate, payload string) (*store.Event, error) {
 	data := map[string]any{"gate": gate}
 	if payload != "" {
 		data["payload_hash"] = fmt.Sprintf("%x", hash(payload))
+	}
+	mode := ""
+	if c.Config != nil {
+		mode, _ = c.Config.ConfigFlag("approvals").(string)
 	}
 	if env, err := c.Env(r); err == nil {
 		lastApproval := -1
@@ -625,26 +633,57 @@ func (c *Ctl) Approve(gate, payload string) (*store.Event, error) {
 		// tolerate topicless answers; never link an answer about a
 		// DIFFERENT gate (the anchoring race: any unrelated AskUserQuestion
 		// used to anchor a hardened approval)
-		topicRef, plainRef := "", ""
+		type cand struct{ id, answer string }
+		var topicCands, plainCands []cand // stream order: newest last
 		for _, ua := range env.Records("user-answer") {
 			if ua.Order <= lastApproval {
 				continue
 			}
+			answer, _ := ua.Data["answer"].(string)
 			switch topic, _ := ua.Data["topic"].(string); topic {
 			case gate:
-				topicRef = ua.ID // stream order: newest wins
+				topicCands = append(topicCands, cand{ua.ID, answer})
 			case "":
-				plainRef = ua.ID
+				plainCands = append(plainCands, cand{ua.ID, answer})
 			}
 		}
-		ref := topicRef
-		if ref == "" {
-			ref = plainRef
+		if mode == "challenge" {
+			// single-use code, statusline-delivered: verify it appears in a
+			// captured answer, newest-first, topic-matched preferred
+			code, cerr := c.ensureChallenge(gate)
+			if cerr != nil {
+				return nil, cerr
+			}
+			ref := ""
+			for _, cs := range [][]cand{topicCands, plainCands} {
+				for i := len(cs) - 1; i >= 0; i-- {
+					if strings.Contains(strings.ToUpper(cs[i].answer), code) {
+						ref = cs[i].id
+						break
+					}
+				}
+				if ref != "" {
+					break
+				}
+			}
+			if ref == "" {
+				return nil, fmt.Errorf("approvals require the user's challenge code for this project: ask via AskUserQuestion (naming the %s gate) for the code shown in the user's wf statusline, then re-run wf approve %s", gate, gate)
+			}
+			c.clearChallenge() // single-use: consumed on success
+			data["answer_ref"] = ref
+			data["challenge"] = true
+			return c.append(r, "approval", false, "user", data)
+		}
+		ref := ""
+		if len(topicCands) > 0 {
+			ref = topicCands[len(topicCands)-1].id
+		} else if len(plainCands) > 0 {
+			ref = plainCands[len(plainCands)-1].id
 		}
 		switch {
 		case ref != "":
 			data["answer_ref"] = ref
-		case c.Config != nil && c.Config.ConfigFlag("approvals") == "hardened":
+		case mode == "hardened":
 			return nil, fmt.Errorf("approvals are hardened for this project: pose the %s question via AskUserQuestion first (the hook records the answer; phrase the question so it names the %s gate), then re-run wf approve %s", gate, gate, gate)
 		}
 	}

@@ -157,3 +157,39 @@ func TestReportArchivedAndAggregate(t *testing.T) {
 		t.Fatalf("archived run status: %s", s.Status)
 	}
 }
+
+// Loop analytics: cause and per-AC breakdowns fold from loop records; force
+// details carry phase+reason.
+func TestReportLoopAnalytics(t *testing.T) {
+	c := newCtl(t)
+	r, err := c.RunStart("diff", "fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := r.ID
+	raw(t, c, id, "verify", "loop", false, "agent", map[string]any{"ac": "AC-1", "cause": "slip", "evidence": "e", "target": "build"})
+	raw(t, c, id, "verify", "loop", false, "agent", map[string]any{"ac": "AC-1", "cause": "slip", "evidence": "e", "target": "build"})
+	raw(t, c, id, "verify", "loop", false, "agent", map[string]any{"ac": "AC-2", "cause": "design", "evidence": "e", "target": "design"})
+	raw(t, c, id, "plan", "phase", false, "engine", map[string]any{"action": "force", "reason": "user demanded"})
+
+	s, err := ReportRun(c, "current")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.LoopsByCause["slip"] != 2 || s.LoopsByCause["design"] != 1 {
+		t.Errorf("loops by cause = %v", s.LoopsByCause)
+	}
+	if s.LoopsByAC["AC-1"] != 2 || s.LoopsByAC["AC-2"] != 1 {
+		t.Errorf("loops by AC = %v", s.LoopsByAC)
+	}
+	if len(s.ForceDetails) != 1 || !strings.Contains(s.ForceDetails[0], "plan: user demanded") {
+		t.Errorf("force details = %v", s.ForceDetails)
+	}
+	out := RenderRunSignals(s)
+	if !strings.Contains(out, "loop causes: design 1 · slip 2") {
+		t.Errorf("render missing deterministic cause breakdown:\n%s", out)
+	}
+	if !strings.Contains(out, "forced: plan: user demanded") {
+		t.Errorf("render missing force details:\n%s", out)
+	}
+}

@@ -69,5 +69,10 @@ func Statusline(c *runctl.Ctl) string {
 	if doctor.HookLiveness(c, r) != "" {
 		line += " · ⚠ hooks dead"
 	}
+	// challenge approvals: the statusline is the ONLY channel that shows
+	// the code (the engine never prints it to the model)
+	if ch := c.PendingChallenge(); ch != nil {
+		line += fmt.Sprintf(" · approve %s: code %s", ch.Gate, ch.Code)
+	}
 	return line
 }

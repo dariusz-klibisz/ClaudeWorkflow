@@ -21,12 +21,20 @@ Bash tool's PATH while the plugin is enabled — call it bare, no env setup.
    the user confirm the final JSON):
    - `ux: true` for UI-bearing projects (arms the UX lane)
    - `flags`: `pii`, `internet_facing`, `public_api` (each `true` arms its
-     risk signals on EVERY run), `approvals: "hardened"` (refuse un-anchored
-     approvals)
+     risk signals on EVERY run)
+   - `approvals` dial (in `flags`): unset = self-attested with best-effort
+     anchoring; `"hardened"` = refuse un-anchored approvals;
+     `"challenge"` = strongest — each approval requires the user to type a
+     single-use code the engine shows only in their statusline (wire the
+     statusline first, step 4)
    - `thresholds`: e.g. `{"coverage": 80}` — the hook scrapes coverage from
      runner output and a measured floor breach blocks Verify
    - regulated/company contract packs: `wf pack install <dir-or-yaml>`
-     (validated add-only merge into `contracts.d/`)
+     (validated add-only merge into `contracts.d/`; pack docs land in
+     `.workflow/packs/`). Official packs ship with the plugin under
+     `packs/`: `sbom`, and `regulated/{iso-26262, iec-62304, do-178c,
+     iec-61508, en-50128, nist-800-53}` — each arms the compliance-reviewer
+     gates for its standard (NOT a compliance tool; see packs/README.md)
 2. **Merge** (never overwrite) `.claude/settings.json` so collaborators get
    the plugin on folder trust, and `wf` calls need no permission prompts.
    The auto-mode classifier may block this write as "Self-Modification"

@@ -7,6 +7,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -47,10 +48,77 @@ func main() {
 		if err := checkProseParity(root, sp); err != nil {
 			fatal(err)
 		}
+		if err := checkCorpora(root); err != nil {
+			fatal(err)
+		}
 	}
 	if *check && drift {
 		fatal(fmt.Errorf("generated files drift from workflow.yaml — run `go generate ./...` (go run ./gen)"))
 	}
+}
+
+// ---------------------------------------------------------------------------
+// corpus snapshot integrity: each reference/<name>/ ships a SHA256SUMS
+// manifest written by scripts/sync-corpora.sh. A bundled file that differs
+// from its manifest entry (or exists unmanifested) is a hand-edited
+// snapshot — corpus fixes belong in the source repos, not the bundle.
+// ---------------------------------------------------------------------------
+
+func checkCorpora(root string) error {
+	refDir := filepath.Join(root, "reference")
+	entries, err := os.ReadDir(refDir)
+	if err != nil {
+		return nil // no bundled corpora (source checkout variants)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(refDir, e.Name())
+		manifest := filepath.Join(dir, "SHA256SUMS")
+		raw, err := os.ReadFile(manifest)
+		if err != nil {
+			return fmt.Errorf("corpus %s: SHA256SUMS missing — run scripts/sync-corpora.sh", e.Name())
+		}
+		listed := map[string]string{}
+		for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+			parts := strings.Fields(line)
+			if len(parts) != 2 {
+				continue
+			}
+			listed[filepath.ToSlash(strings.TrimPrefix(parts[1], "./"))] = parts[0]
+		}
+		seen := map[string]bool{}
+		err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".md") {
+				return err
+			}
+			rel, _ := filepath.Rel(dir, path)
+			rel = filepath.ToSlash(rel)
+			seen[rel] = true
+			want, ok := listed[rel]
+			if !ok {
+				return fmt.Errorf("corpus %s: %s not in SHA256SUMS — hand-added? corpus changes go through the source repo + sync-corpora.sh", e.Name(), rel)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != want {
+				return fmt.Errorf("corpus %s: %s differs from its SHA256SUMS entry — hand-edited? corpus changes go through the source repo + sync-corpora.sh", e.Name(), rel)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		for rel := range listed {
+			if !seen[rel] {
+				return fmt.Errorf("corpus %s: %s listed in SHA256SUMS but missing on disk — run scripts/sync-corpora.sh", e.Name(), rel)
+			}
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +266,16 @@ func hooksJSON(sp *spec.Spec) []byte {
 	for _, a := range sp.GatingAgents() {
 		gating = append(gating, a.Name)
 	}
-	agentMatcher := "^wf:(" + strings.Join(gating, "|") + ")$"
+	// SubagentStop gates verdicts — gating reviewers only. SubagentStart
+	// briefs a wider set: gating reviewers AND author-side agents with a
+	// corpus routing list (designer, ux-designer, implementer) — otherwise
+	// the roster's corpus is never delivered to the authors it routes.
+	injectable := make([]string, 0)
+	for _, a := range sp.InjectableAgents() {
+		injectable = append(injectable, a.Name)
+	}
+	stopMatcher := "^wf:(" + strings.Join(gating, "|") + ")$"
+	startMatcher := "^wf:(" + strings.Join(injectable, "|") + ")$"
 
 	exec := func(timeout int, args ...string) map[string]any {
 		return map[string]any{
@@ -241,10 +318,10 @@ func hooksJSON(sp *spec.Spec) []byte {
 				group("", exec(15, "gate", "stop")),
 			},
 			"SubagentStart": []any{
-				group(agentMatcher, exec(10, "inject", "agent")),
+				group(startMatcher, exec(10, "inject", "agent")),
 			},
 			"SubagentStop": []any{
-				group(agentMatcher, exec(15, "gate", "verdict")),
+				group(stopMatcher, exec(15, "gate", "verdict")),
 			},
 			"TaskCreated": []any{
 				group("", exec(10, "gate", "task-create")),
@@ -256,6 +333,9 @@ func hooksJSON(sp *spec.Spec) []byte {
 				group("Skill", exec(10, "gate", "skill")),
 				group("Edit|Write", exec(10, "gate", "edit")),
 				group("Bash", exec(10, "gate", "bash")),
+				// .workflow/local content guard (challenge codes):
+				// store-free, deny-only, nothing legitimate blocked
+				group("Read|Grep|Glob", exec(10, "gate", "read")),
 			},
 			"PostToolUse": []any{
 				group("Bash", exec(10, "capture", "bash")),

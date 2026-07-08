@@ -98,3 +98,59 @@ func TestPackInstallRejectsBadNamespace(t *testing.T) {
 		t.Fatalf("rejected pack must leave contracts.d untouched: %v", entries)
 	}
 }
+
+// Pack docs (.md) travel to .workflow/packs/<pack>/ — the injected
+// checklist path for pack-referencing reviewers.
+func TestPackInstallCopiesDocs(t *testing.T) {
+	c, _ := newCtl(t)
+	src := t.TempDir()
+	packDir := filepath.Join(src, "my-std")
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writePack(t, packDir, "contracts.yaml", goodPack)
+	if err := os.WriteFile(filepath.Join(packDir, "my-std.md"), []byte("# checklist\n- item"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := PackInstall(c, specPathAbs(t), packDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "1 doc(s)") {
+		t.Errorf("install output missing doc note: %s", out)
+	}
+	doc := filepath.Join(c.Store.Root, "packs", "my-std", "my-std.md")
+	if _, err := os.Stat(doc); err != nil {
+		t.Fatalf("pack doc not copied to %s: %v", doc, err)
+	}
+}
+
+// The shipped regulated packs must install cleanly against the shipped spec
+// (the same check the exemplar smoke ran, kept green in CI).
+func TestShippedPacksInstall(t *testing.T) {
+	root, _ := filepath.Abs(filepath.Join("..", "..", ".."))
+	packs := []string{
+		filepath.Join(root, "packs", "sbom"),
+		filepath.Join(root, "packs", "regulated", "iso-26262"),
+		filepath.Join(root, "packs", "regulated", "iec-62304"),
+		filepath.Join(root, "packs", "regulated", "do-178c"),
+		filepath.Join(root, "packs", "regulated", "iec-61508"),
+		filepath.Join(root, "packs", "regulated", "en-50128"),
+		filepath.Join(root, "packs", "regulated", "nist-800-53"),
+	}
+	c, _ := newCtl(t)
+	for _, p := range packs {
+		if _, err := PackInstall(c, specPathAbs(t), p); err != nil {
+			t.Errorf("shipped pack %s must install: %v", filepath.Base(p), err)
+		}
+	}
+	// all six standards in force, distinct scopes
+	sp, err := spec.Load(specPathAbs(t), c.Store.ContractsDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stds := sp.ComplianceStandards(); len(stds) != 6 {
+		t.Errorf("want 6 standards in force, got %v", stds)
+	}
+}

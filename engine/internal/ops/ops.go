@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/runctl"
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/views"
 )
 
 // ---------------------------------------------------------------------------
@@ -168,6 +169,7 @@ var docTypes = map[string]docSpec{
 	"incident":          {dest: "docs/incidents/<slug>.md"},
 	"release-notes":     {dest: "docs/releases/<slug>.md"},
 	"delivery-manifest": {dest: "docs/releases/delivery-manifest-<slug>.md", role: "delivery-manifest"},
+	"evidence-package":  {dest: "docs/compliance/evidence-<slug>.md", role: "evidence-package"},
 	"retro":             {dest: "docs/retros/<slug>.md"},
 	"research-findings": {
 		dest: "docs/research/<slug>.md", role: "deliverable-report"},
@@ -202,6 +204,20 @@ func DocNew(c *runctl.Ctl, pluginRoot, projectDir, docType, slug string) (string
 	if err != nil {
 		return "", fmt.Errorf("template %s missing in plugin: %w", docType, err)
 	}
+	// retro auto-fill: the {{signals}} placeholder becomes the rendered
+	// ledger numbers — "numbers, not impressions" at zero effort. The rest
+	// of the template stays authored-content prompts; the substitution is
+	// marked engine-generated so the analysis obligation is visible.
+	if strings.Contains(string(content), "{{signals}}") {
+		block := "<!-- engine-generated from the run ledger (wf report) — analyze below, do not restate -->\n"
+		if s, err := views.ReportRun(c, "current"); err == nil {
+			block += "```\n" + strings.TrimRight(views.RenderRunSignals(s), "\n") + "\n```"
+		} else {
+			block += "(signals unavailable: " + err.Error() + " — paste `wf report --run <id>` output)"
+		}
+		content = []byte(strings.ReplaceAll(string(content), "{{signals}}", block))
+	}
+
 	rel := strings.ReplaceAll(ds.dest, "<slug>", slug)
 	if strings.Contains(rel, "<nnnn>") {
 		n := 1

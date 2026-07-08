@@ -35,11 +35,11 @@ func TestShippedSpecValid(t *testing.T) {
 	if len(s.Families) != 3 {
 		t.Errorf("want 3 families, got %d", len(s.Families))
 	}
-	if got := len(s.GatingAgents()); got != 11 {
-		t.Errorf("want 11 gating agents, got %d", got)
+	if got := len(s.GatingAgents()); got != 12 {
+		t.Errorf("want 12 gating agents, got %d", got)
 	}
-	if len(s.Roster) != 15 {
-		t.Errorf("want 15 agents, got %d", len(s.Roster))
+	if len(s.Roster) != 16 {
+		t.Errorf("want 16 agents, got %d", len(s.Roster))
 	}
 }
 

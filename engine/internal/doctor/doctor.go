@@ -6,6 +6,7 @@ package doctor
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -108,7 +109,36 @@ func Run(c *runctl.Ctl, specPath string) Report {
 		}
 	}
 
+	// corpus snapshot age: reviewers cite rule IDs from these snapshots —
+	// a stale bundle ages every citation (informational; the corpora
+	// workflow does the authoritative drift check against the sources)
+	f = append(f, corpusFindings(c.Spec.PluginRoot())...)
+
 	return Report{OK: len(f) == 0, Findings: f}
+}
+
+// corpusFindings reports missing or stale (>180 days) bundled corpora.
+func corpusFindings(pluginRoot string) []string {
+	if pluginRoot == "" {
+		return nil
+	}
+	var f []string
+	for _, name := range []string{"design", "coding", "ux"} {
+		ver := filepath.Join(pluginRoot, "reference", name, "VERSION")
+		raw, err := os.ReadFile(ver)
+		if err != nil {
+			f = append(f, fmt.Sprintf("reference corpus %q missing its VERSION stamp — agents fall back to model knowledge (reinstall the plugin or run scripts/sync-corpora.sh)", name))
+			continue
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if d, ok := strings.CutPrefix(line, "date: "); ok {
+				if t, err := time.Parse("2006-01-02", strings.TrimSpace(d)); err == nil && time.Since(t) > 180*24*time.Hour {
+					f = append(f, fmt.Sprintf("reference corpus %q snapshot is %d days old — reviewer citations age with it (maintainer: scripts/sync-corpora.sh)", name, int(time.Since(t).Hours()/24)))
+				}
+			}
+		}
+	}
+	return f
 }
 
 // HookLiveness returns a warning when the run's ledger shows no

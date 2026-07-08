@@ -17,6 +17,7 @@ import (
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/runctl"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/spec"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/store"
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/views"
 )
 
 type T struct {
@@ -254,6 +255,40 @@ func Run(specPath string) int {
 	chain, cerr = st.VerifyChain()
 	t.check("S11d forged prev-less append breaks the chain", cerr == nil && len(chain.Breaks) > 0, fmt.Sprint(chain))
 
-	fmt.Printf("selftest: %d scenario checks, %d failure(s)\n", 29, len(t.failures))
+	// S12: challenge approvals (04 §8.1 escalated) — the code is minted on
+	// the first attempt, never printed to the model, shown by the
+	// statusline, and only a captured answer carrying it approves.
+	dir4, err := os.MkdirTemp("", "wf-selftest12-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "selftest:", err)
+		return 1
+	}
+	defer os.RemoveAll(dir4)
+	st4, _ := store.Open(dir4, true)
+	c5 := &runctl.Ctl{Store: st4, Spec: sp, Config: &store.Config{Flags: map[string]any{"approvals": "challenge"}}}
+	_, _ = c5.RunStart("diff", "fix")
+	_, cherr := c5.Approve("frame", "p")
+	ch := c5.PendingChallenge()
+	t.check("S12a challenge minted and approval refused without the code",
+		cherr != nil && ch != nil && ch.Code != "" && !strings.Contains(fmt.Sprint(cherr), ch.Code), fmt.Sprint(cherr))
+	t.check("S12b statusline is the code's only channel",
+		ch != nil && strings.Contains(views.Statusline(c5), ch.Code), views.Statusline(c5))
+	_ = gates.CaptureQuestion(c5, input(map[string]any{
+		"hook_event_name": "PostToolUse", "tool_name": "AskUserQuestion",
+		"tool_input":    map[string]any{"questions": []any{map[string]any{"question": "Approve the frame?"}}},
+		"tool_response": map[string]any{"answers": []any{map[string]any{"answer": "yes, approved"}}},
+	}))
+	_, cherr = c5.Approve("frame", "p")
+	t.check("S12c code-less answer still refused", cherr != nil, fmt.Sprint(cherr))
+	_ = gates.CaptureQuestion(c5, input(map[string]any{
+		"hook_event_name": "PostToolUse", "tool_name": "AskUserQuestion",
+		"tool_input":    map[string]any{"questions": []any{map[string]any{"question": "Approve the frame?"}}},
+		"tool_response": map[string]any{"answers": []any{map[string]any{"answer": "code: " + ch.Code}}},
+	}))
+	chEv, cherr := c5.Approve("frame", "p")
+	t.check("S12d code-bearing answer approves, marked and consumed",
+		cherr == nil && chEv != nil && chEv.Data["challenge"] == true && c5.PendingChallenge() == nil, fmt.Sprint(cherr))
+
+	fmt.Printf("selftest: %d scenario checks, %d failure(s)\n", 33, len(t.failures))
 	return len(t.failures)
 }

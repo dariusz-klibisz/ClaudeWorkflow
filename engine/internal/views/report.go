@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/contracts"
@@ -34,15 +35,25 @@ type RunSignals struct {
 	Waivers         int            `json:"waivers"` // contract-item waivers
 	WaivedPhases    []string       `json:"waived_phases,omitempty"`
 
+	// loop analytics (folded from loop records): cause names WHERE the
+	// process failed — slip re-opened Build, design/plan re-opened those
+	// phases. ForceDetails carries phase+reason per forced exit.
+	LoopsByCause map[string]int `json:"loops_by_cause,omitempty"`
+	LoopsByAC    map[string]int `json:"loops_by_ac,omitempty"`
+	ForceDetails []string       `json:"force_details,omitempty"`
+
 	// self-attestation (04 §8: manual records are auto:false and reported)
 	Verdicts     int `json:"verdicts"`
 	AutoVerdicts int `json:"auto_verdicts"`
 	TestRuns     int `json:"test_runs"`
 	AutoTestRuns int `json:"auto_test_runs"`
 	// approvals: anchored = carries answer_ref to a hook-captured
-	// AskUserQuestion exchange (04 §8.1 — harder to fabricate, still not proof)
-	Approvals         int `json:"approvals"`
-	AnchoredApprovals int `json:"anchored_approvals"`
+	// AskUserQuestion exchange (04 §8.1 — harder to fabricate, still not
+	// proof); challenge = additionally verified against a statusline-
+	// delivered single-use code the model never saw beforehand
+	Approvals          int `json:"approvals"`
+	AnchoredApprovals  int `json:"anchored_approvals"`
+	ChallengeApprovals int `json:"challenge_approvals"`
 
 	// grounding
 	UngroundedTestRuns int      `json:"ungrounded_test_runs"`
@@ -168,6 +179,11 @@ func runSignals(c *runctl.Ctl, runID string, archived bool) (*RunSignals, error)
 				s.Loops++
 			case "force":
 				s.Forces++
+				detail := e.Phase
+				if r := e.Str("reason"); r != "" {
+					detail += ": " + r
+				}
+				s.ForceDetails = append(s.ForceDetails, detail)
 			case "park":
 				if s.Status == "active" {
 					s.Status = "parked"
@@ -221,6 +237,9 @@ func runSignals(c *runctl.Ctl, runID string, archived bool) (*RunSignals, error)
 		if ref, _ := a.Data["answer_ref"].(string); ref != "" {
 			s.AnchoredApprovals++
 		}
+		if ch, _ := a.Data["challenge"].(bool); ch {
+			s.ChallengeApprovals++
+		}
 	}
 	for _, av := range env.Records("ac-verdict") {
 		if status, _ := av.Data["status"].(string); status != "pass" {
@@ -235,6 +254,20 @@ func runSignals(c *runctl.Ctl, runID string, archived bool) (*RunSignals, error)
 		s.Waivers++
 		if item, _ := w.Data["item"].(string); strings.HasPrefix(item, "lesson.") {
 			s.LessonItemWaivers++
+		}
+	}
+	for _, l := range env.Records("loop") {
+		if cause, _ := l.Data["cause"].(string); cause != "" {
+			if s.LoopsByCause == nil {
+				s.LoopsByCause = map[string]int{}
+			}
+			s.LoopsByCause[cause]++
+		}
+		if ac, _ := l.Data["ac"].(string); ac != "" {
+			if s.LoopsByAC == nil {
+				s.LoopsByAC = map[string]int{}
+			}
+			s.LoopsByAC[ac]++
 		}
 	}
 	for _, l := range env.Records("lesson") {
@@ -288,8 +321,14 @@ func RenderRunSignals(s *RunSignals) string {
 	fmt.Fprintf(&b, "[wf report] run %s (%s/%s) — %s\n", s.Run, s.Family, s.Intent, s.Status)
 	fmt.Fprintf(&b, "  loops %d · forces %d · parks %d · waivers %d (phases: %s)\n",
 		s.Loops, s.Forces, s.Parks, s.Waivers, orDash(s.WaivedPhases))
-	fmt.Fprintf(&b, "  verdicts %d (%d auto) · test-runs %d (%d auto, %d ungrounded) · approvals %d (%d answer-anchored)\n",
-		s.Verdicts, s.AutoVerdicts, s.TestRuns, s.AutoTestRuns, s.UngroundedTestRuns, s.Approvals, s.AnchoredApprovals)
+	if len(s.LoopsByCause) > 0 || len(s.LoopsByAC) > 0 {
+		fmt.Fprintf(&b, "  loop causes: %s · per AC: %s\n", countMap(s.LoopsByCause), countMap(s.LoopsByAC))
+	}
+	if len(s.ForceDetails) > 0 {
+		fmt.Fprintf(&b, "  forced: %s\n", strings.Join(s.ForceDetails, " · "))
+	}
+	fmt.Fprintf(&b, "  verdicts %d (%d auto) · test-runs %d (%d auto, %d ungrounded) · approvals %d (%d answer-anchored, %d challenge-verified)\n",
+		s.Verdicts, s.AutoVerdicts, s.TestRuns, s.AutoTestRuns, s.UngroundedTestRuns, s.Approvals, s.AnchoredApprovals, s.ChallengeApprovals)
 	fmt.Fprintf(&b, "  AC passes %d (ungrounded: %s)\n", s.ACPasses, orDash(s.UngroundedACs))
 	fmt.Fprintf(&b, "  lessons: %d proposed · %d accepted · %d rejected · %d lesson-item waivers\n",
 		s.LessonsProposed, s.LessonsAccepted, s.LessonsRejected, s.LessonItemWaivers)
@@ -324,4 +363,21 @@ func orDash(xs []string) string {
 		return "—"
 	}
 	return strings.Join(xs, ", ")
+}
+
+// countMap renders a small count map deterministically ("design 1 · slip 2").
+func countMap(m map[string]int) string {
+	if len(m) == 0 {
+		return "—"
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s %d", k, m[k]))
+	}
+	return strings.Join(parts, " · ")
 }

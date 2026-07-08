@@ -1,0 +1,24 @@
+# EN 50128 pack — regulated compliance gates for wf (installed via
+# `wf pack install packs/regulated/en-50128`). Add-only: these items extend
+# the shipped contract; the checklist en-50128.md lands in
+# .workflow/packs/en-50128/ and is injected into compliance-reviewer spawns.
+# NOT A COMPLIANCE TOOL — see the checklist's disclaimer.
+contracts:
+  - id: local.en-50128.design-review
+    phase: design
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: en-50128, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:compliance-reviewer (scope en-50128) over the selected design — checklist: .workflow/packs/en-50128/en-50128.md; fix findings to clean"
+  - id: local.en-50128.verify-review
+    phase: verify
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: en-50128, statuses: [clean, n/a] }
+    remediation: "Compliance confirmation pass: @wf:compliance-reviewer (scope en-50128) over the verified change and its evidence"
+  - id: local.en-50128.evidence-package
+    phase: ship
+    families: [diff, artifact]
+    predicate: artifact-present
+    params: { role: evidence-package }
+    remediation: "wf doc new evidence-package --slug <run-id>; author it per the checklist's evidence section (coverage with independence records, Validator review records and Software Validation Report, configuration index), then flip the artifact to present"

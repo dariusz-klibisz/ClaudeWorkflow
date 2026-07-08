@@ -32,17 +32,35 @@ expanding scope — and records every escape it grants.
 - **Audited escapes, not hidden ones.** `/wf:park` (honest stop),
   `/wf:force` (bypass one gate; escalates — the 3rd force auto-parks the
   run). Everything is recorded and reported.
-- **Anchored approvals.** Approvals are self-attested by design (no hook
-  proves a human typed them), but answers given through AskUserQuestion are
-  hook-captured and linked to the approval (`answer_ref`) — harder to
-  fabricate, still not proof, and reported as such. Opt-in strictness:
-  `"flags": {"approvals": "hardened"}` in `.workflow/config.json` refuses
-  un-anchored approvals outright.
-- **Lessons that bite.** At Ship, the run's lessons are proposed and
-  user-triaged (`wf lessons accept|reject`); accepted lessons with a
-  `check:` become ordinary contract items in `.workflow/contracts.d/` —
-  **enforced from the next run on** by the same evaluator as everything
-  else. Prose lessons regenerate `.claude/rules/wf-lessons.md`.
+- **Anchored approvals — three dials.** Approvals are self-attested by
+  design (no hook proves a human typed them), but answers given through
+  AskUserQuestion are hook-captured and linked to the approval
+  (`answer_ref`) — harder to fabricate, still not proof, and reported as
+  such. Opt-in strictness in `.workflow/config.json` `flags`:
+  `"approvals": "hardened"` refuses un-anchored approvals outright;
+  `"approvals": "challenge"` goes further — each approval requires a
+  **single-use code the engine shows only in your statusline** (never to
+  the model; tool gates deny reads of its storage), which you type into
+  the AskUserQuestion answer. The model cannot manufacture its own anchor
+  because it never sees the code before you do.
+- **Lessons that bite — and are measured.** At Ship, the run's lessons are
+  proposed and user-triaged (`wf lessons accept|reject`); accepted lessons
+  with a `check:` become ordinary contract items in
+  `.workflow/contracts.d/` — **enforced from the next run on** by the same
+  evaluator as everything else. Prose lessons regenerate
+  `.claude/rules/wf-lessons.md`. `wf lessons status` is the efficacy view:
+  per accepted lesson, whether its item was waived (dodged) or its trigger
+  recurred in later runs (not working).
+- **Generated traceability.** `wf trace --rtm [--write]` renders the
+  requirements-traceability matrix (requirement → AC → verification →
+  grounded evidence → verdict → tasks → loops) straight from the ledger —
+  the auditor-facing view of the chain the gates enforce, never
+  hand-authored.
+- **Compliance packs (opt-in).** `packs/` ships add-only contract packs:
+  `sbom` and six regulated standards (ISO 26262, IEC 62304, DO-178C,
+  IEC 61508, EN 50128, NIST 800-53) that arm a per-standard
+  compliance-reviewer at Design/Verify plus an evidence package at Ship.
+  **Not a compliance tool** — see `packs/README.md`.
 
 ## Quickstart
 
@@ -92,20 +110,26 @@ wf status                      where the run stands (authoritative, from disk)
 wf statusline                  one-line statusLine payload (run · phase · unmet);
                                /wf:init wires it into .claude/settings.json
                                unless you already have a statusLine
-wf report [--run <id|current>] health signals: loops, escapes, self-attested
-          [--worktrees]        counts, ungrounded ACs, lesson efficacy;
-                               --worktrees groups across the repo's trees
-wf trace                       ship close-out findings
-wf lessons suggest|accept|reject|apply
-wf doc new <type> --slug …     16 engine-mediated document templates (ADR,
+wf report [--run <id|current>] health signals: loops (by cause and per AC),
+          [--worktrees]        escapes, self-attested counts, ungrounded ACs,
+                               lesson counters; --worktrees groups across trees
+wf trace [--rtm [--write]]     ship close-out findings; --rtm renders the
+                               requirements-traceability matrix (--write emits
+                               docs/requirements/RTM-<run>.md)
+wf lessons suggest|accept|reject|apply|status
+                               status = efficacy: dodged items, recurring triggers
+wf doc new <type> --slug …     17 engine-mediated document templates (ADR,
                                design, threat-model, abuse-cases, attack-tree,
-                               test-plan, runbook, retro, findings reports…);
-                               status=present is refused until the file is
-                               authored on disk (never a stub)
-wf pack install <dir-or-yaml>  add-only contract packs (validated before merge)
-wf doctor [--bootstrap]        state health, ledger hash-chain verification ·
-                               verifies AND heals the hook engine
-wf selftest                    29 in-scaffold enforcement scenarios
+                               test-plan, runbook, retro, evidence-package,
+                               findings reports…); status=present is refused
+                               until the file is authored on disk (never a stub)
+wf pack install <dir-or-yaml>  add-only contract packs (validated before merge);
+                               official packs ship under packs/ (sbom + 6
+                               regulated standards)
+wf doctor [--bootstrap]        state health, ledger hash-chain verification,
+                               corpus snapshot age · verifies AND heals the
+                               hook engine
+wf selftest                    33 in-scaffold enforcement scenarios
 ```
 
 ## Updating
@@ -165,6 +189,11 @@ skew or a stale manifest) — nothing is published.
   the gates with recorded hook payloads).
 - Design docs: `workflow-redesign/` (01–09) — the spec this plugin
   implements; `workflow/workflow.yaml` is the machine-readable contract.
+- Bundled corpora (`reference/{design,coding,ux}`) are versioned snapshots:
+  `VERSION` names the source remote + sha, `SHA256SUMS` is verified by
+  `make check` (hand-edits fail CI), and the scheduled `corpora` workflow
+  fails when a source repo drifts from its snapshot (release-blocking in
+  `release.yml`). Refresh with `scripts/sync-corpora.sh`.
 - Agent memory (`memory: project` on design-reviewer,
   code-quality-reviewer, adversary) is self-curated recall across runs;
   **lessons** are user-approved contract changes. They complement, never

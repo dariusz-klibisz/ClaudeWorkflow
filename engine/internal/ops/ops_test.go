@@ -161,3 +161,30 @@ func TestDocNew(t *testing.T) {
 		t.Fatal("incident doc not created under docs/incidents/")
 	}
 }
+
+// The retro template's {{signals}} placeholder is engine-filled with the
+// run's rendered ledger numbers at creation time.
+func TestDocNewRetroSignalsAutofill(t *testing.T) {
+	c, dir := newCtl(t)
+	r, _ := c.RunStart("diff", "fix")
+	pluginRoot, _ := filepath.Abs(filepath.Join("..", "..", ".."))
+	_ = c.Store.Append(&store.Event{Run: r.ID, Phase: "verify", Kind: "loop", Actor: "agent",
+		Data: map[string]any{"ac": "AC-1", "cause": "slip", "evidence": "e", "target": "build"}})
+
+	if _, err := DocNew(c, pluginRoot, dir, "retro", r.ID); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "docs", "retros", strings.ToLower(r.ID)+".md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(raw)
+	if strings.Contains(content, "{{signals}}") {
+		t.Fatal("placeholder must be substituted")
+	}
+	for _, want := range []string{"engine-generated from the run ledger", "[wf report] run " + r.ID, "loop causes: slip 1"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("retro missing %q:\n%s", want, content)
+		}
+	}
+}

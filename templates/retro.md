@@ -4,7 +4,9 @@
 
 ## What the ledger says
 
-<from `wf report --run <id>`: loops, forces, waivers, self-attested vs auto evidence — numbers, not impressions>
+{{signals}}
+
+<your reading of the numbers above: which loop causes, forces, or ungrounded evidence deserve a lesson — numbers, not impressions>
 
 ## What went well
 

@@ -627,6 +627,43 @@ func (s *Spec) GatingAgents() []Agent {
 	return out
 }
 
+// ComplianceStandards lists the regulated standards in force: the distinct
+// verdict-in scopes of contract items referencing the compliance-reviewer.
+// Shipped workflow.yaml has none — installed regulated packs
+// (.workflow/contracts.d/) are the only source of such items.
+func (s *Spec) ComplianceStandards() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, it := range s.Contracts {
+		if it.Predicate != PredVerdictIn {
+			continue
+		}
+		if a, _ := it.Params["agent"].(string); a != "compliance-reviewer" {
+			continue
+		}
+		if sc, _ := it.Params["scope"].(string); sc != "" && !seen[sc] {
+			seen[sc] = true
+			out = append(out, sc)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// InjectableAgents returns roster entries that receive a SubagentStart
+// briefing: every gating reviewer (scope + corpus + verdict contract) and
+// every author-side agent with a corpus routing list (scope + corpus) —
+// without this, an author agent's roster corpus is dead weight at runtime.
+func (s *Spec) InjectableAgents() []Agent {
+	var out []Agent
+	for _, a := range s.Roster {
+		if a.Gating || len(a.Corpus) > 0 {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 func (s *Spec) ValidFamily(f string) bool {
 	for _, x := range s.Families {
 		if x == f {

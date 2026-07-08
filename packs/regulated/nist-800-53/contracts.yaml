@@ -1,0 +1,24 @@
+# NIST SP 800-53 pack — regulated compliance gates for wf (installed via
+# `wf pack install packs/regulated/nist-800-53`). Add-only: these items extend
+# the shipped contract; the checklist nist-800-53.md lands in
+# .workflow/packs/nist-800-53/ and is injected into compliance-reviewer spawns.
+# NOT A COMPLIANCE TOOL — see the checklist's disclaimer.
+contracts:
+  - id: local.nist-800-53.design-review
+    phase: design
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: nist-800-53, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:compliance-reviewer (scope nist-800-53) over the selected design — checklist: .workflow/packs/nist-800-53/nist-800-53.md; fix findings to clean"
+  - id: local.nist-800-53.verify-review
+    phase: verify
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: nist-800-53, statuses: [clean, n/a] }
+    remediation: "Compliance confirmation pass: @wf:compliance-reviewer (scope nist-800-53) over the verified change and its evidence"
+  - id: local.nist-800-53.evidence-package
+    phase: ship
+    families: [diff, artifact]
+    predicate: artifact-present
+    params: { role: evidence-package }
+    remediation: "wf doc new evidence-package --slug <run-id>; author it per the checklist's evidence section (SSP with control statements, SBOM, POA&M, ATO/FedRAMP package), then flip the artifact to present"

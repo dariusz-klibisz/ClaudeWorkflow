@@ -119,7 +119,7 @@ func run(args []string) int {
 	case "doctor":
 		return doctorCmd(ctl, rest)
 	case "trace":
-		return traceCmd(ctl)
+		return traceCmd(ctl, projectDir, rest)
 	case "report":
 		return reportCmd(ctl, projectDir, rest)
 	case "lessons":
@@ -228,7 +228,7 @@ func openCtl(projectDir string, initMode bool) (*runctl.Ctl, error) {
 
 func gateCmd(projectDir string, rest []string) int {
 	if len(rest) == 0 {
-		fmt.Fprintln(os.Stderr, "wf gate stop|task-create|task-complete|verdict|skill|edit|bash")
+		fmt.Fprintln(os.Stderr, "wf gate stop|task-create|task-complete|verdict|skill|edit|bash|read")
 		return 3
 	}
 	which := rest[0]
@@ -240,6 +240,11 @@ func gateCmd(projectDir string, rest []string) int {
 	// un-adopted projects too and must not depend on state or spec.
 	if which == "bash" {
 		return gates.Bash(nil, in).Emit(os.Stdout, os.Stderr)
+	}
+	// Read/Grep/Glob guard for engine-private local state: store-free data
+	// protection (challenge codes must not be tool-readable).
+	if which == "read" {
+		return gates.ReadTool(in).Emit(os.Stdout, os.Stderr)
 	}
 	ctl, err := openCtl(projectDir, false)
 	if err != nil {
@@ -553,7 +558,11 @@ func approveCmd(ctl *runctl.Ctl, rest []string) int {
 		fmt.Fprintln(os.Stderr, "wf:", err)
 		return 2
 	}
-	fmt.Printf("approval %s recorded (%s) — self-attested, reported per run\n", rest[0], ev.ID)
+	if ch, _ := ev.Data["challenge"].(bool); ch {
+		fmt.Printf("approval %s recorded (%s) — challenge-verified against the user's statusline code\n", rest[0], ev.ID)
+	} else {
+		fmt.Printf("approval %s recorded (%s) — self-attested, reported per run\n", rest[0], ev.ID)
+	}
 	return 0
 }
 
@@ -769,7 +778,7 @@ func reportCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
 // contracts.d/lessons.yaml + .claude/rules/wf-lessons.md).
 func lessonsCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
 	if len(rest) == 0 {
-		fmt.Fprintln(os.Stderr, "wf lessons suggest|accept <id>|reject <id>|apply")
+		fmt.Fprintln(os.Stderr, "wf lessons suggest|accept <id>|reject <id>|apply|status")
 		return 3
 	}
 	specPath, err := resolveSpecPath()
@@ -781,6 +790,8 @@ func lessonsCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
 	switch rest[0] {
 	case "suggest":
 		out, err = ops.LessonsSuggest(ctl)
+	case "status":
+		out, err = ops.LessonsStatus(ctl)
 	case "accept", "reject":
 		if len(rest) < 2 {
 			fmt.Fprintf(os.Stderr, "wf lessons %s <lesson-record-id>\n", rest[0])
@@ -794,7 +805,7 @@ func lessonsCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
 	case "apply":
 		out, err = ops.LessonsApply(ctl, projectDir, specPath)
 	default:
-		fmt.Fprintln(os.Stderr, "wf lessons suggest|accept <id>|reject <id>|apply")
+		fmt.Fprintln(os.Stderr, "wf lessons suggest|accept <id>|reject <id>|apply|status")
 		return 3
 	}
 	if err != nil {
@@ -805,14 +816,76 @@ func lessonsCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
 	return 0
 }
 
-func traceCmd(ctl *runctl.Ctl) int {
-	report, err := views.Trace(ctl)
+func traceCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
+	fs := flag.NewFlagSet("trace", flag.ContinueOnError)
+	rtm := fs.Bool("rtm", false, "render the requirements-traceability matrix instead of close-out findings")
+	write := fs.Bool("write", false, "with --rtm: write docs/requirements/RTM-<run>.md and record the artifact")
+	if err := fs.Parse(rest); err != nil {
+		return 3
+	}
+	if !*rtm {
+		report, err := views.Trace(ctl)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "wf:", err)
+			return 2
+		}
+		fmt.Print(report)
+		return 0
+	}
+	out, err := views.RTM(ctl)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wf:", err)
 		return 2
 	}
-	fmt.Print(report)
+	if !*write {
+		fmt.Print(out)
+		return 0
+	}
+	rel, err := writeRTM(ctl, projectDir, out)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wf:", err)
+		return 2
+	}
+	fmt.Printf("wrote %s (generated view — regenerate with wf trace --rtm --write, never hand-edit)\n", rel)
 	return 0
+}
+
+// writeRTM persists the generated RTM and records it as a present artifact
+// (role trace-view). Engine-authored: full content lands before the record,
+// so the status=present disk check holds.
+func writeRTM(ctl *runctl.Ctl, projectDir, content string) (string, error) {
+	r, err := ctl.MustRun()
+	if err != nil {
+		return "", err
+	}
+	env0, err := ctl.Env(r)
+	if err != nil {
+		return "", err
+	}
+	if len(env0.Records("requirement")) == 0 {
+		return "", fmt.Errorf("no requirement records in this run — nothing to trace (RTM --write needs a framed diff/artifact run)")
+	}
+	rel := filepath.ToSlash(filepath.Join("docs", "requirements", "RTM-"+r.ID+".md"))
+	abs := filepath.Join(projectDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+		return "", err
+	}
+	// idempotent: update the existing trace-view record when re-generated
+	env, err := ctl.Env(r)
+	if err != nil {
+		return "", err
+	}
+	for _, a := range env.Records("artifact") {
+		if p, _ := a.Data["path"].(string); p == rel {
+			_, err = ctl.Record("artifact", map[string]any{"updates": a.ID, "status": "present"}, true, "engine")
+			return rel, err
+		}
+	}
+	_, err = ctl.Record("artifact", map[string]any{"path": rel, "status": "present", "role": "trace-view"}, true, "engine")
+	return rel, err
 }
 
 func depsCmd(ctl *runctl.Ctl, projectDir string, rest []string) int {
@@ -935,7 +1008,7 @@ packs:           wf pack install <dir-or-yaml>   (add-only contracts.d extension
 introspection:   wf status · wf report [--json] [--run <id|current>] [--worktrees]
                  wf statusline (statusLine command; reads stdin JSON)
                  wf doctor [--bootstrap] · wf selftest · wf version
-hook entries:    wf gate stop|task-create|task-complete|verdict|skill|edit|bash
+hook entries:    wf gate stop|task-create|task-complete|verdict|skill|edit|bash|read
                  wf inject session|turn|agent <name> · wf capture bash|edit
 `)
 }

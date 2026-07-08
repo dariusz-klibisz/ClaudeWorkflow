@@ -208,3 +208,70 @@ func TestLessonsProseSurvivesUserContentOutsideMarkers(t *testing.T) {
 		t.Fatalf("reject must clear the block but keep user content:\n%s", raw)
 	}
 }
+
+// New suggest triggers: upstream (design/plan) loop causes and per-AC churn
+// propose targeted lessons, stamped with their trigger class.
+func TestLessonsSuggestLoopCauseTriggers(t *testing.T) {
+	c, _ := newCtl(t)
+	r, _ := c.RunStart("diff", "fix")
+	loop := func(ac, cause string) {
+		_ = c.Store.Append(&store.Event{Run: r.ID, Phase: "verify", Kind: "loop", Actor: "agent",
+			Data: map[string]any{"ac": ac, "cause": cause, "evidence": "e", "target": cause}})
+	}
+	loop("AC-1", "design")
+	loop("AC-1", "plan")
+
+	out, err := LessonsSuggest(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// design+plan >= 2 → upstream-loops; AC-1 twice → ac-churn; loops>=2 → loops
+	for _, want := range []string{"re-opened Design/Plan", "AC AC-1 looped 2 times", "looped 2 times"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("suggest missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// LessonsStatus: a dodged check-lesson (waived lesson.* item) and a
+// recurring engine trigger are both efficacy concerns.
+func TestLessonsStatus(t *testing.T) {
+	c, dir := newCtl(t)
+	r, _ := c.RunStart("diff", "fix")
+
+	// accepted check-lesson whose generated item was waived
+	lev := &store.Event{Run: r.ID, Phase: "ship", Kind: "lesson", Actor: "agent",
+		Data: map[string]any{"text": "always check hooks", "status": "proposed",
+			"check": `{"phase":"build","predicate":"record-exists","params":{"kind":"test-run"},"remediation":"run tests"}`}}
+	if err := c.Store.Append(lev); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LessonsAccept(c, dir, specPath(t), lev.ID); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Store.Append(&store.Event{Run: r.ID, Phase: "build", Kind: "waiver", Actor: "user",
+		Data: map[string]any{"item": "lesson.always-check-hooks", "reason": "n/a"}})
+
+	// accepted engine lesson whose trigger (forces) fires in this run
+	tl := &store.Event{Run: r.ID, Phase: "ship", Kind: "lesson", Actor: "engine", Auto: true,
+		Data: map[string]any{"text": "stop forcing gates", "status": "proposed", "source": "engine", "trigger": "forces"}}
+	if err := c.Store.Append(tl); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Store.Append(&store.Event{Run: r.ID, Phase: "ship", Kind: "lesson", Actor: "user",
+		Data: map[string]any{"updates": tl.ID, "status": "accepted"}})
+	// a force in the SAME run is not "recurrence" (origin run is excluded)
+	_ = c.Store.Append(&store.Event{Run: r.ID, Phase: "build", Kind: "phase", Actor: "engine",
+		Data: map[string]any{"action": "force", "reason": "r"}})
+
+	out, err := LessonsStatus(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "waived in 1 run(s)") || !strings.Contains(out, "accepted but dodged") {
+		t.Errorf("status missing dodged-lesson concern:\n%s", out)
+	}
+	if !strings.Contains(out, "has not recurred") {
+		t.Errorf("same-run trigger must not count as recurrence:\n%s", out)
+	}
+}

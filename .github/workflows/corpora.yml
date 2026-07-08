@@ -1,0 +1,58 @@
+name: corpora
+# Corpus drift check: the bundled reference/ snapshots must track their
+# source repos. Each reference/<name>/VERSION names the source remote and
+# the synced sha; this workflow clones each source and fails on drift.
+# Weekly + manual — drift is a maintenance signal, not a PR blocker
+# (integrity of the snapshot itself is CI-blocking via `gen -check`).
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: compare bundled shas against source HEADs
+        env:
+          # only needed while the corpus repos are private
+          CORPORA_TOKEN: ${{ secrets.CORPORA_TOKEN }}
+        run: |
+          set -eu
+          drift=0
+          for name in design coding ux; do
+            ver="reference/$name/VERSION"
+            [ -f "$ver" ] || { echo "::error::$ver missing"; drift=1; continue; }
+            url=$(sed -n 's/^source: //p' "$ver")
+            want=$(sed -n 's/^sha: //p' "$ver")
+            date=$(sed -n 's/^date: //p' "$ver")
+            case "$url" in
+              https://*) ;;
+              *) echo "::warning::$name: source '$url' is not a remote URL — re-run scripts/sync-corpora.sh"; continue ;;
+            esac
+            if [ -n "${CORPORA_TOKEN:-}" ]; then
+              url=$(echo "$url" | sed "s#https://#https://x-access-token:${CORPORA_TOKEN}@#")
+            fi
+            have=$(git ls-remote "$url" HEAD | awk '{print $1}') || { echo "::error::$name: cannot reach $url"; drift=1; continue; }
+            case "$have" in
+              "$want"*) echo "$name: ok ($want, synced $date)" ;;
+              *)
+                echo "::error::$name: bundled sha $want != source HEAD ${have:0:7} (synced $date) — run scripts/sync-corpora.sh and commit"
+                drift=1
+                ;;
+            esac
+          done
+          exit $drift
+      - name: staleness (>90 days since sync)
+        run: |
+          set -eu
+          now=$(date -u +%s)
+          for name in design coding ux; do
+            date=$(sed -n 's/^date: //p' "reference/$name/VERSION")
+            then=$(date -u -d "$date" +%s)
+            age=$(( (now - then) / 86400 ))
+            if [ "$age" -gt 90 ]; then
+              echo "::warning::$name corpus snapshot is $age days old — consider a refresh"
+            fi
+          done

@@ -14,12 +14,21 @@ Contract first:
   (`wf record followup updates=<id> status=next-run`). Re-run `wf trace`
   until no finding is open
 - `@wf:auditor` verdict over the resolved trace (HIGH findings block close)
+- diff/artifact: `wf trace --rtm --write` — generates the
+  requirements-traceability matrix (`docs/requirements/RTM-<run>.md`):
+  requirement → AC → verification → grounded evidence → verdict → tasks →
+  loops. A derived view over the ledger (never hand-edit; re-run to
+  regenerate) — this is the auditor/stakeholder-facing rendering of the
+  chain the gates enforced
 - diff: record the delivery package —
   `wf record artifact path=<PR-or-release-ref> role=delivery status=present`;
   intent deploy: `wf doc new delivery-manifest --slug <release>` (target,
   config diff, rollout, smoke, rollback), author + flip to present
-- Lessons: `wf lessons suggest` first (the engine proposes from the run's
-  health signals), then add agent-spotted ones
+- Lessons: `wf lessons status` first — the efficacy view (per accepted
+  lesson: was its contract item waived? did its trigger recur in later
+  runs?). A dodged or recurring lesson is a process gap to raise with the
+  user, not a formality. Then `wf lessons suggest` (the engine proposes
+  from the run's health signals) and add agent-spotted ones
   (`wf record lesson text="…" status=proposed [check="…"]`). The `check`
   field is a contract-item fragment (YAML or JSON: phase, predicate, params,
   remediation — the shipped predicate vocabulary). Ask the user, then

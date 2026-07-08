@@ -3,8 +3,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "check": {},
+    "source": {},
     "status": {},
-    "text": {}
+    "text": {},
+    "trigger": {}
   },
   "required": [
     "text",

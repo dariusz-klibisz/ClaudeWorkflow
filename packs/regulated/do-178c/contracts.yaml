@@ -1,0 +1,24 @@
+# DO-178C pack — regulated compliance gates for wf (installed via
+# `wf pack install packs/regulated/do-178c`). Add-only: these items extend
+# the shipped contract; the checklist do-178c.md lands in
+# .workflow/packs/do-178c/ and is injected into compliance-reviewer spawns.
+# NOT A COMPLIANCE TOOL — see the checklist's disclaimer.
+contracts:
+  - id: local.do-178c.design-review
+    phase: design
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: do-178c, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:compliance-reviewer (scope do-178c) over the selected design — checklist: .workflow/packs/do-178c/do-178c.md; fix findings to clean"
+  - id: local.do-178c.verify-review
+    phase: verify
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: do-178c, statuses: [clean, n/a] }
+    remediation: "Compliance confirmation pass: @wf:compliance-reviewer (scope do-178c) over the verified change and its evidence"
+  - id: local.do-178c.evidence-package
+    phase: ship
+    families: [diff, artifact]
+    predicate: artifact-present
+    params: { role: evidence-package }
+    remediation: "wf doc new evidence-package --slug <run-id>; author it per the checklist's evidence section (PSAC and the four plans, HLR↔LLR↔test RTM, structural coverage per DAL, SAS), then flip the artifact to present"

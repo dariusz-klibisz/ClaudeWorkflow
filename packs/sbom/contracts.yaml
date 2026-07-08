@@ -1,0 +1,14 @@
+# SBOM pack — supply-chain transparency gate for wf (installed via
+# `wf pack install packs/sbom`). Adds a record kind for the generated SBOM
+# and a Ship gate requiring one per delivered diff. Generate with your
+# ecosystem's tool (e.g. `syft . -o cyclonedx-json`, `cyclonedx-npm`,
+# `cyclonedx-gomod`) — the record carries the path and format.
+records:
+  - { kind: x-sbom, fields: [path, format, status] } # format: cyclonedx|spdx; status: present|missing
+contracts:
+  - id: local.sbom.present
+    phase: ship
+    families: [diff]
+    predicate: record-exists
+    params: { kind: x-sbom, filter: { status: present } }
+    remediation: "Generate the SBOM (e.g. syft . -o cyclonedx-json > sbom.json), then record it: wf record x-sbom path=sbom.json format=cyclonedx status=present"

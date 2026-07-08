@@ -103,6 +103,20 @@
           }
         ],
         "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "args": [
+              "gate",
+              "read"
+            ],
+            "command": "${CLAUDE_PLUGIN_DATA}/bin/wf",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Read|Grep|Glob"
       }
     ],
     "SessionStart": [
@@ -153,7 +167,7 @@
             "type": "command"
           }
         ],
-        "matcher": "^wf:(critic|design-reviewer|ux-design-reviewer|code-quality-reviewer|code-security-reviewer|code-testing-reviewer|design-conformance-reviewer|adversary|lens-reviewer|ux-reviewer|auditor)$"
+        "matcher": "^wf:(designer|ux-designer|implementer|critic|design-reviewer|ux-design-reviewer|code-quality-reviewer|code-security-reviewer|code-testing-reviewer|design-conformance-reviewer|adversary|lens-reviewer|ux-reviewer|auditor|compliance-reviewer)$"
       }
     ],
     "SubagentStop": [
@@ -169,7 +183,7 @@
             "type": "command"
           }
         ],
-        "matcher": "^wf:(critic|design-reviewer|ux-design-reviewer|code-quality-reviewer|code-security-reviewer|code-testing-reviewer|design-conformance-reviewer|adversary|lens-reviewer|ux-reviewer|auditor)$"
+        "matcher": "^wf:(critic|design-reviewer|ux-design-reviewer|code-quality-reviewer|code-security-reviewer|code-testing-reviewer|design-conformance-reviewer|adversary|lens-reviewer|ux-reviewer|auditor|compliance-reviewer)$"
       }
     ],
     "TaskCompleted": [

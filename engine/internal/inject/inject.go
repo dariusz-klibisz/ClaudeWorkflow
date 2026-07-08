@@ -16,6 +16,7 @@ import (
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/contracts"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/doctor"
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/runctl"
+	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/store"
 )
 
 // Session renders the full re-anchoring block.
@@ -108,34 +109,85 @@ func Turn(c *runctl.Ctl) (string, error) {
 	return strings.Join(lines[:max], "\n"), nil
 }
 
-// Agent renders the SubagentStart briefing for a gating reviewer: scope,
-// inputs, corpus routing, and the verdict-block contract (04 §4).
+// Agent renders the SubagentStart briefing: scope, corpus routing, and —
+// for gating reviewers — the verdict-block contract (04 §4). Author-side
+// agents with a roster corpus (designer, ux-designer, implementer) get the
+// scope + corpus half; without it their corpus routing is dead weight.
 func Agent(c *runctl.Ctl, agentName string) (string, error) {
 	r, err := c.Store.LoadRun()
 	if err != nil || r == nil {
 		return "", err
 	}
 	ag, ok := c.Spec.AgentByName(agentName)
-	if !ok || !ag.Gating {
+	if !ok || (!ag.Gating && len(ag.Corpus) == 0) {
 		return "", nil
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "[wf] review scope: run %s (%s/%s), phase %s.\n", r.ID, r.Family, orDash(r.Intent), r.Phase)
-	if mode := agentMode(agentName, r.Phase); mode != "" {
-		fmt.Fprintf(&b, "assigned mode/scope for this spawn: %s — include it as the `scope:` line of the verdict block.\n", mode)
+	role := "work"
+	if ag.Gating {
+		role = "review"
+	}
+	fmt.Fprintf(&b, "[wf] %s scope: run %s (%s/%s), phase %s.\n", role, r.ID, r.Family, orDash(r.Intent), r.Phase)
+	if ag.Gating {
+		if mode := agentMode(agentName, r.Phase); mode != "" {
+			fmt.Fprintf(&b, "assigned mode/scope for this spawn: %s — include it as the `scope:` line of the verdict block.\n", mode)
+		}
+		if agentName == "compliance-reviewer" {
+			complianceBriefing(c, &b)
+		}
+	} else if stage := designStage(c, r, agentName); stage != "" {
+		fmt.Fprintf(&b, "assigned design stage for this spawn: %s — name it in the `stage` field of the returned option-set.\n", stage)
 	}
 	if len(ag.Corpus) > 0 {
 		root := pluginRoot(c)
-		b.WriteString("reference corpus for this review (read before judging; cite file+rule):\n")
+		verb := "authoring"
+		if ag.Gating {
+			verb = "judging"
+		}
+		fmt.Fprintf(&b, "reference corpus for this %s (read before %s; cite file+rule):\n", role, verb)
 		for _, p := range ag.Corpus {
 			fmt.Fprintf(&b, "  - %s\n", filepath.Join(root, filepath.FromSlash(p)))
 		}
-		b.WriteString("corpus absent/unreadable ⇒ use your own knowledge and say so in the verdict.\n")
+		b.WriteString("corpus absent/unreadable ⇒ use your own knowledge and say so in the output.\n")
 	}
-	b.WriteString("The verdict is machine-parsed. The final message must end with exactly this fenced block:\n")
-	b.WriteString("```verdict\nstatus: <clean|changes-required|safe|risky|unsafe|n/a>\ncriticals: <int>\nmajors: <int>\nscope: <your assigned mode/lens, if any>\n```\n")
-	b.WriteString("clean/safe require criticals=0 and majors=0; risky requires each concern listed for disposition; n/a needs one line of reason above the block.\n")
+	if ag.Gating {
+		b.WriteString("The verdict is machine-parsed. The final message must end with exactly this fenced block:\n")
+		b.WriteString("```verdict\nstatus: <clean|changes-required|safe|risky|unsafe|n/a>\ncriticals: <int>\nmajors: <int>\nscope: <your assigned mode/lens, if any>\n```\n")
+		b.WriteString("clean/safe require criticals=0 and majors=0; risky requires each concern listed for disposition; n/a needs one line of reason above the block.\n")
+	}
 	return b.String(), nil
+}
+
+// complianceBriefing names the standards in force (from installed pack
+// items) and routes the pack-shipped checklist documents — these live
+// project-side under .workflow/packs/, not in the plugin corpus.
+func complianceBriefing(c *runctl.Ctl, b *strings.Builder) {
+	stds := c.Spec.ComplianceStandards()
+	if len(stds) == 0 {
+		b.WriteString("no regulated standards are in force (no installed pack references you) — verdict n/a with that reason.\n")
+		return
+	}
+	fmt.Fprintf(b, "standards in force for this project: %s", strings.Join(stds, ", "))
+	if len(stds) > 1 {
+		b.WriteString(" — one standard per spawn; declare yours in the verdict `scope:` line")
+	}
+	b.WriteString(".\n")
+	packsDir := filepath.Join(c.Store.Root, "packs")
+	var docs []string
+	_ = filepath.Walk(packsDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(path, ".md") {
+			docs = append(docs, path)
+		}
+		return nil
+	})
+	if len(docs) > 0 {
+		b.WriteString("standard checklists (installed with the packs — read before judging; cite clause IDs):\n")
+		for _, d := range docs {
+			fmt.Fprintf(b, "  - %s\n", d)
+		}
+	} else {
+		b.WriteString("no pack checklists found under .workflow/packs — review from your own knowledge, say so, and cap status at changes-required.\n")
+	}
 }
 
 // agentMode mirrors the verdict gate's phase-derived default scopes.
@@ -151,6 +203,38 @@ func agentMode(agent, phase string) string {
 		}
 	}
 	return ""
+}
+
+// designStage derives the stage a designer spawn is for from the recorded
+// option-sets — deterministic staging: system is fixed before software
+// (mirrors agentMode's phase-derived scopes; there is no per-spawn
+// addressing channel). ux-designer always works the ux stage.
+func designStage(c *runctl.Ctl, r *store.Run, agent string) string {
+	switch agent {
+	case "ux-designer":
+		return "ux"
+	case "designer":
+	default:
+		return ""
+	}
+	env, err := c.Env(r)
+	if err != nil {
+		return ""
+	}
+	stages := map[string]bool{}
+	for _, rec := range env.Records("option-set") {
+		if s, _ := rec.Data["stage"].(string); s != "" {
+			stages[s] = true
+		}
+	}
+	switch {
+	case !stages["system"]:
+		return "system"
+	case !stages["software"]:
+		return "software"
+	default:
+		return "system or software (loop re-entry — state which; carry the recorded rejected option IDs forward, a rejected option may not reappear)"
+	}
 }
 
 func pluginRoot(c *runctl.Ctl) string {

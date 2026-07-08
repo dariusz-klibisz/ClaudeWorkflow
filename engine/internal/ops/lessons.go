@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -34,23 +35,31 @@ const (
 	lessonsEnd      = "<!-- wf:lessons:end -->"
 )
 
-// LessonsSuggest proposes lessons from the active run's health signals —
-// engine-spotted, user-triaged. Idempotent: an existing lesson with the same
-// normalized text (any status) suppresses the suggestion.
-func LessonsSuggest(c *runctl.Ctl) (string, error) {
-	s, err := views.ReportRun(c, "current")
-	if err != nil {
-		return "", err
-	}
-	var texts []string
+// triggerClasses maps a run's health signals to the engine suggest-trigger
+// classes that fire, each with its lesson text. Shared by LessonsSuggest
+// (proposing) and LessonsStatus (efficacy: did an accepted lesson's trigger
+// fire again in a later run?). Class names are stable — they are stamped
+// into lesson records as `trigger`.
+func triggerClasses(s *views.RunSignals) map[string]string {
+	out := map[string]string{}
 	if s.Forces > 0 {
-		texts = append(texts, fmt.Sprintf("This run forced %d gate(s). Review what blocked and fix the process (or propose a contract change) instead of forcing.", s.Forces))
+		out["forces"] = fmt.Sprintf("This run forced %d gate(s). Review what blocked and fix the process (or propose a contract change) instead of forcing.", s.Forces)
 	}
 	if s.Loops >= 2 {
-		texts = append(texts, fmt.Sprintf("This run looped %d times. Check whether Frame/Plan missed the cause — loops past the first usually mean an upstream gap.", s.Loops))
+		out["loops"] = fmt.Sprintf("This run looped %d times. Check whether Frame/Plan missed the cause — loops past the first usually mean an upstream gap.", s.Loops)
+	}
+	if s.LoopsByCause["design"]+s.LoopsByCause["plan"] >= 2 {
+		out["upstream-loops"] = fmt.Sprintf("Verify re-opened Design/Plan %d times (causes: design %d, plan %d). The framing or design review is letting structural gaps through — tighten those gates, don't just fix the instance.",
+			s.LoopsByCause["design"]+s.LoopsByCause["plan"], s.LoopsByCause["design"], s.LoopsByCause["plan"])
+	}
+	for ac, n := range s.LoopsByAC {
+		if n >= 2 {
+			out["ac-churn"] = fmt.Sprintf("AC %s looped %d times. The criterion may be unverifiable as written, or the selected design doesn't support it — revisit the AC before the next re-entry.", ac, n)
+			break
+		}
 	}
 	if s.Verdicts >= 2 && s.AutoVerdicts == 0 {
-		texts = append(texts, "All reviewer verdicts were recorded manually — the SubagentStop capture never fired. Run wf doctor --bootstrap at session start.")
+		out["manual-verdicts"] = "All reviewer verdicts were recorded manually — the SubagentStop capture never fired. Run wf doctor --bootstrap at session start."
 	}
 	// test-run grounding signals are diff-family only: artifact/assessment
 	// runs verify documents with manual grep-style checks by design — zero
@@ -58,12 +67,30 @@ func LessonsSuggest(c *runctl.Ctl) (string, error) {
 	// false-positive suggestion).
 	if s.Family == "diff" {
 		if s.TestRuns >= 3 && s.AutoTestRuns == 0 {
-			texts = append(texts, "No test run was auto-captured — the runner isn't recognized. Record verification-strategy commands as the real invocations, or add the wrapper to config \"runners\".")
+			out["manual-tests"] = "No test run was auto-captured — the runner isn't recognized. Record verification-strategy commands as the real invocations, or add the wrapper to config \"runners\"."
 		}
 		if len(s.UngroundedACs) > 0 {
-			texts = append(texts, fmt.Sprintf("AC(s) %s passed without a grounded green test-run. Tag AC verification runs (--ac) so evidence is hook-captured.", strings.Join(s.UngroundedACs, ", ")))
+			out["ungrounded-acs"] = fmt.Sprintf("AC(s) %s passed without a grounded green test-run. Tag AC verification runs (--ac) so evidence is hook-captured.", strings.Join(s.UngroundedACs, ", "))
 		}
 	}
+	return out
+}
+
+// LessonsSuggest proposes lessons from the active run's health signals —
+// engine-spotted, user-triaged. Idempotent: an existing lesson with the same
+// normalized text (any status) suppresses the suggestion. Each proposal is
+// stamped with its trigger class so LessonsStatus can track recurrence.
+func LessonsSuggest(c *runctl.Ctl) (string, error) {
+	s, err := views.ReportRun(c, "current")
+	if err != nil {
+		return "", err
+	}
+	classes := triggerClasses(s)
+	order := make([]string, 0, len(classes))
+	for cl := range classes {
+		order = append(order, cl)
+	}
+	sort.Strings(order)
 
 	existing := map[string]bool{}
 	for _, l := range lessonRecords(c) {
@@ -72,11 +99,12 @@ func LessonsSuggest(c *runctl.Ctl) (string, error) {
 	}
 	proposed := 0
 	var b strings.Builder
-	for _, t := range texts {
+	for _, cl := range order {
+		t := classes[cl]
 		if existing[normText(t)] {
 			continue
 		}
-		ev, err := c.Record("lesson", map[string]any{"text": t, "status": "proposed", "source": "engine"}, true, "engine")
+		ev, err := c.Record("lesson", map[string]any{"text": t, "status": "proposed", "source": "engine", "trigger": cl}, true, "engine")
 		if err != nil {
 			return "", err
 		}
@@ -87,6 +115,121 @@ func LessonsSuggest(c *runctl.Ctl) (string, error) {
 		return "wf lessons suggest: nothing to propose (signals clean or already covered)", nil
 	}
 	return fmt.Sprintf("proposed %d lesson(s) — triage each with wf lessons accept|reject <id>:\n%s", proposed, b.String()), nil
+}
+
+// LessonsStatus renders the efficacy view: per lesson — origin run, status,
+// and what happened since acceptance. For check-lessons: how often the
+// generated lesson.* item was waived (accepted but dodged). For
+// engine-suggested lessons: whether the trigger class fired again in a
+// later run (accepted but not working). Derived, never gates.
+func LessonsStatus(c *runctl.Ctl) (string, error) {
+	lessons := lessonRecords(c)
+	if len(lessons) == 0 {
+		return "[wf lessons] no lessons recorded yet", nil
+	}
+
+	// origin run per lesson + waiver runs per contract item, from raw events
+	originRun := map[string]string{}
+	waivedIn := map[string][]string{}
+	if evs, err := c.Store.AllEvents(); err == nil {
+		for _, e := range evs {
+			switch e.Kind {
+			case "lesson":
+				if _, isUpdate := e.Data["updates"].(string); !isUpdate {
+					originRun[e.ID] = e.Run
+				}
+			case "waiver":
+				if item, _ := e.Data["item"].(string); strings.HasPrefix(item, "lesson.") {
+					waivedIn[item] = append(waivedIn[item], e.Run)
+				}
+			}
+		}
+	}
+
+	// per-run signals, run-ID ordered (IDs are date-prefixed)
+	sigs, err := views.Report(c)
+	if err != nil {
+		return "", err
+	}
+	classByRun := map[string]map[string]string{}
+	runOrder := make([]string, 0, len(sigs))
+	for i := range sigs {
+		classByRun[sigs[i].Run] = triggerClasses(&sigs[i])
+		runOrder = append(runOrder, sigs[i].Run)
+	}
+	sort.Strings(runOrder)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "[wf lessons] %d lesson(s)\n", len(lessons))
+	concerns := 0
+	for _, l := range lessons {
+		status, _ := l.Data["status"].(string)
+		text, _ := l.Data["text"].(string)
+		origin := originRun[l.ID]
+		fmt.Fprintf(&b, "  %s · %s · from %s — %s\n", l.ID, status, orStr(origin, "?"), clipText(text, 90))
+		if status != "accepted" {
+			continue
+		}
+		if check, _ := l.Data["check"].(string); check != "" {
+			lc := l
+			if item, err := checkToItem(&lc); err == nil {
+				if runs := waivedIn[item.ID]; len(runs) > 0 {
+					concerns++
+					fmt.Fprintf(&b, "    ⚠ enforced as %s — waived in %d run(s): %s (accepted but dodged)\n", item.ID, len(runs), strings.Join(uniq(runs), ", "))
+				} else {
+					fmt.Fprintf(&b, "    enforced as %s — never waived\n", item.ID)
+				}
+			}
+			continue
+		}
+		if trigger, _ := l.Data["trigger"].(string); trigger != "" {
+			var recurred []string
+			for _, run := range runOrder {
+				if origin != "" && run <= origin {
+					continue
+				}
+				if _, hit := classByRun[run][trigger]; hit {
+					recurred = append(recurred, run)
+				}
+			}
+			if len(recurred) > 0 {
+				concerns++
+				fmt.Fprintf(&b, "    ⚠ trigger %q recurred in %d later run(s): %s (accepted but not working)\n", trigger, len(recurred), strings.Join(recurred, ", "))
+			} else {
+				fmt.Fprintf(&b, "    trigger %q has not recurred since acceptance\n", trigger)
+			}
+		}
+	}
+	if concerns > 0 {
+		fmt.Fprintf(&b, "%d efficacy concern(s) — a dodged or recurring lesson is a process gap, not a formality\n", concerns)
+	}
+	return b.String(), nil
+}
+
+func orStr(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
+}
+
+func clipText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
+}
+
+func uniq(xs []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, x := range xs {
+		if !seen[x] {
+			seen[x] = true
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // LessonsAccept validates the lesson's check (if any) against the full

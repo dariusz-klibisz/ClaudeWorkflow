@@ -1,0 +1,24 @@
+# IEC 62304 pack — regulated compliance gates for wf (installed via
+# `wf pack install packs/regulated/iec-62304`). Add-only: these items extend
+# the shipped contract; the checklist iec-62304.md lands in
+# .workflow/packs/iec-62304/ and is injected into compliance-reviewer spawns.
+# NOT A COMPLIANCE TOOL — see the checklist's disclaimer.
+contracts:
+  - id: local.iec-62304.design-review
+    phase: design
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: iec-62304, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:compliance-reviewer (scope iec-62304) over the selected design — checklist: .workflow/packs/iec-62304/iec-62304.md; fix findings to clean"
+  - id: local.iec-62304.verify-review
+    phase: verify
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: iec-62304, statuses: [clean, n/a] }
+    remediation: "Compliance confirmation pass: @wf:compliance-reviewer (scope iec-62304) over the verified change and its evidence"
+  - id: local.iec-62304.evidence-package
+    phase: ship
+    families: [diff, artifact]
+    predicate: artifact-present
+    params: { role: evidence-package }
+    remediation: "wf doc new evidence-package --slug <run-id>; author it per the checklist's evidence section (safety classification rationale, SOUP inventory, risk management file, release checklist), then flip the artifact to present"

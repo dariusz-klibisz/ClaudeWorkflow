@@ -448,6 +448,13 @@ func defaultScope(c *runctl.Ctl, agent string) string {
 	if agent == "lens-reviewer" && r.Phase == "frame" {
 		return "security" // the gated lens; others recorded via explicit scope
 	}
+	if agent == "compliance-reviewer" {
+		// exactly one standard in force ⇒ unambiguous; several ⇒ the
+		// reviewer must self-declare (the briefing says so)
+		if stds := c.Spec.ComplianceStandards(); len(stds) == 1 {
+			return stds[0]
+		}
+	}
 	return ""
 }
 
@@ -647,6 +654,17 @@ func wfStateTamper(cmd string) bool {
 	return false
 }
 
+// localStateTarget matches .workflow/local — the engine-private per-machine
+// state (counters, mirrors, pending approval challenge codes). Nothing
+// legitimate reads or writes it through tools; challenge codes make model
+// reads actively harmful (04 §8.1: the code must reach the model only
+// through the user's typed answer).
+var localStateTarget = regexp.MustCompile(`(^|[/\s"'=])\.workflow/local(/|\s|"|'|$)`)
+
+// statuslineInvocation matches agent-run `wf statusline` — the statusline
+// payload is the user's channel and may carry a pending challenge code.
+var statuslineInvocation = regexp.MustCompile(`\bwf(\.exe|-[a-z0-9-]+)?["']?\s+statusline\b`)
+
 // Bash is the catastrophic-command net (deny; duplicated as permission rules
 // where expressible). Store-free and always-on: it also protects the wf
 // ledger from direct writes even before adoption state can be read.
@@ -659,6 +677,29 @@ func Bash(_ *runctl.Ctl, in *hookio.Input) hookio.Result {
 	}
 	if wfStateTamper(cmd) {
 		return hookio.Deny("Direct writes into .workflow/{log,state,runs,config.json} are blocked (no override): the ledger is engine-written — use wf record/approve/…; config.json changes belong to the user")
+	}
+	if localStateTarget.MatchString(cmd) {
+		return hookio.Deny(".workflow/local is engine-private per-machine state (no override): it holds nothing an agent needs — and may hold a pending approval challenge code")
+	}
+	if statuslineInvocation.MatchString(cmd) {
+		return hookio.Deny("wf statusline is the user's display channel (it may carry an approval challenge code) — agents read run state via wf status")
+	}
+	return hookio.Allow()
+}
+
+// ReadTool guards the Read/Grep/Glob tools against .workflow/local — the
+// only project path whose CONTENT is model-sensitive (pending challenge
+// codes). Store-free data protection, no escape hatch; everything else in
+// .workflow stays readable (the ledger is meant to be read).
+func ReadTool(in *hookio.Input) hookio.Result {
+	for _, field := range []string{"file_path", "path", "pattern", "include"} {
+		v := in.ToolInputField(field)
+		if v == "" {
+			continue
+		}
+		if localStateTarget.MatchString(v) || strings.Contains(strings.ReplaceAll(v, "\\", "/"), ".workflow/local") {
+			return hookio.Deny(".workflow/local is engine-private per-machine state (no override): it holds nothing an agent needs — and may hold a pending approval challenge code")
+		}
 	}
 	return hookio.Allow()
 }

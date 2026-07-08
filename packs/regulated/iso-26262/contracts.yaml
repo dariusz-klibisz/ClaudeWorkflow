@@ -1,0 +1,24 @@
+# ISO 26262 pack — regulated compliance gates for wf (installed via
+# `wf pack install packs/regulated/iso-26262`). Add-only: these items extend
+# the shipped contract; the checklist iso-26262.md lands in
+# .workflow/packs/iso-26262/ and is injected into compliance-reviewer spawns.
+# NOT A COMPLIANCE TOOL — see the checklist's disclaimer.
+contracts:
+  - id: local.iso-26262.design-review
+    phase: design
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: iso-26262, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:compliance-reviewer (scope iso-26262) over the selected design — checklist: .workflow/packs/iso-26262/iso-26262.md; fix findings to clean"
+  - id: local.iso-26262.verify-review
+    phase: verify
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: iso-26262, statuses: [clean, n/a] }
+    remediation: "Compliance confirmation pass: @wf:compliance-reviewer (scope iso-26262) over the verified change and its evidence"
+  - id: local.iso-26262.evidence-package
+    phase: ship
+    families: [diff, artifact]
+    predicate: artifact-present
+    params: { role: evidence-package }
+    remediation: "wf doc new evidence-package --slug <run-id>; author it per the checklist's evidence section (HARA, SSR/ASIL, MISRA report, coverage per ASIL, TCL records), then flip the artifact to present"

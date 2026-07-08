@@ -15,7 +15,10 @@ lists what is still missing, with commands):
   confirmation via AskUserQuestion, naming the classification in the
   question — the hook captures the answer, infers the topic, and anchors
   the approval (`answer_ref`); with config `approvals: hardened` an
-  un-anchored or topic-mismatched approval is refused
+  un-anchored or topic-mismatched approval is refused; with
+  `approvals: challenge` additionally ask the user to type the code shown
+  in THEIR statusline (the engine never shows it to you) — the captured
+  answer must contain it
 - `wf risk scan --text "<the task + restatement>" [--add signal]…` — the
   deterministic screen; add signals your judgment finds (auth, network,
   data, boundary, destructive, concurrency, ui)

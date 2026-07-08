@@ -23,6 +23,25 @@ jobs:
       - name: generated files current
         working-directory: engine
         run: go run ./gen -check
+      - name: corpus drift is a release blocker
+        env:
+          CORPORA_TOKEN: ${{ secrets.CORPORA_TOKEN }}
+        run: |
+          set -eu
+          for name in design coding ux; do
+            ver="reference/$name/VERSION"
+            url=$(sed -n 's/^source: //p' "$ver")
+            want=$(sed -n 's/^sha: //p' "$ver")
+            case "$url" in https://*) ;; *) echo "$ver source is not a remote URL"; exit 1 ;; esac
+            if [ -n "${CORPORA_TOKEN:-}" ]; then
+              url=$(echo "$url" | sed "s#https://#https://x-access-token:${CORPORA_TOKEN}@#")
+            fi
+            have=$(git ls-remote "$url" HEAD | awk '{print $1}')
+            case "$have" in
+              "$want"*) echo "$name: ok ($want)" ;;
+              *) echo "$name corpus drifted ($want != ${have:0:7}) — sync before releasing"; exit 1 ;;
+            esac
+          done
       - name: selftest
         working-directory: engine
         run: |

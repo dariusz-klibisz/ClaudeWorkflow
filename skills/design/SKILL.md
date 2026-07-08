@@ -8,9 +8,16 @@ description: wf phase 3 (Design) — staged option evaluation to a reviewed, cri
 Trivial diff with no design decisions? `wf phase waive design --reason "…"`
 (recorded, surfaced at Ship). Otherwise, contract first:
 
-- `wf record option-set stage=system --json '{"candidates":[…],"selected":"…","rejected":[{"id":"…","reason":"…"}]}'`
-  — 2–4 GENUINE candidates with selection and rejection reasons
-- `wf record option-set stage=software --json …` — same at software level
+- spawn `@wf:designer` — once per stage, sequentially: the SubagentStart
+  briefing assigns the stage (system while no system option-set exists,
+  then software) and routes the design corpus. Record its returned
+  option-set verbatim:
+  `wf record option-set stage=system --json '{"candidates":[…],"selected":"…","rejected":[{"id":"…","reason":"…"}]}'`
+  — 2–4 GENUINE candidates with selection and rejection reasons. Record
+  the system stage BEFORE spawning for software (the software spawn builds
+  on the selected system option).
+- `wf record option-set stage=software --json …` — same at software level,
+  from the second designer spawn
 - ux-enabled projects with UI-bearing change: `stage=ux` set too, authored
   by `@wf:ux-designer` and reviewed by `@wf:ux-design-reviewer` (fix to
   clean; a11y criticals are unwaivable — `n/a` verdict for no-UI changes)

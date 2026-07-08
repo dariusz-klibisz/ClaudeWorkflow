@@ -1,0 +1,24 @@
+# IEC 61508 pack — regulated compliance gates for wf (installed via
+# `wf pack install packs/regulated/iec-61508`). Add-only: these items extend
+# the shipped contract; the checklist iec-61508.md lands in
+# .workflow/packs/iec-61508/ and is injected into compliance-reviewer spawns.
+# NOT A COMPLIANCE TOOL — see the checklist's disclaimer.
+contracts:
+  - id: local.iec-61508.design-review
+    phase: design
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: iec-61508, statuses: [clean, n/a] }
+    remediation: "Spawn @wf:compliance-reviewer (scope iec-61508) over the selected design — checklist: .workflow/packs/iec-61508/iec-61508.md; fix findings to clean"
+  - id: local.iec-61508.verify-review
+    phase: verify
+    families: [diff, artifact]
+    predicate: verdict-in
+    params: { agent: compliance-reviewer, scope: iec-61508, statuses: [clean, n/a] }
+    remediation: "Compliance confirmation pass: @wf:compliance-reviewer (scope iec-61508) over the verified change and its evidence"
+  - id: local.iec-61508.evidence-package
+    phase: ship
+    families: [diff, artifact]
+    predicate: artifact-present
+    params: { role: evidence-package }
+    remediation: "wf doc new evidence-package --slug <run-id>; author it per the checklist's evidence section (SRS with hazard traceability, coverage per SIL, static analysis report, assessor-facing release dossier), then flip the artifact to present"

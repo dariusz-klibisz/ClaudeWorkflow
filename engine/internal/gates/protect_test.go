@@ -232,3 +232,68 @@ func TestApproveAnchorsToMatchingTopic(t *testing.T) {
 		t.Fatalf("topicless answer must still anchor: %v %v", err, ev)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// .workflow/local guard (challenge codes must not be tool-readable)
+// ---------------------------------------------------------------------------
+
+func TestBashDeniesLocalStateAndStatusline(t *testing.T) {
+	c := newCtl(t)
+	for _, cmd := range []string{
+		`cat .workflow/local/challenge.json`,
+		`grep -r code .workflow/local/`,
+		`jq . .workflow/local/challenge.json`,
+		`cp .workflow/local/challenge.json /tmp/x`,
+		`wf statusline < payload.json`,
+		`echo '{}' | wf statusline`,
+		`"${CLAUDE_PLUGIN_DATA}/bin/wf" statusline`,
+		`wf-linux-amd64 statusline`,
+	} {
+		if r := Bash(c, hookInput(t, bashPayload(t, cmd))); !isDeny(r) {
+			t.Errorf("local-state/statusline access must be denied: %s", cmd)
+		}
+	}
+	for _, cmd := range []string{
+		`wf status`,
+		`cat .workflow/log/events.jsonl`,
+		`ls .workflow/`,
+		`echo "the local statusline is nice"`,
+	} {
+		if r := Bash(c, hookInput(t, bashPayload(t, cmd))); isDeny(r) {
+			t.Errorf("legitimate command must stay allowed: %s", cmd)
+		}
+	}
+}
+
+func readPayload(t *testing.T, tool, field, val string) string {
+	t.Helper()
+	raw, _ := json.Marshal(map[string]any{
+		"session_id": "s1", "hook_event_name": "PreToolUse", "tool_name": tool,
+		"tool_input": map[string]any{field: val},
+	})
+	return string(raw)
+}
+
+func TestReadToolGuardsLocalState(t *testing.T) {
+	for _, tc := range [][3]string{
+		{"Read", "file_path", ".workflow/local/challenge.json"},
+		{"Read", "file_path", "/repo/.workflow/local/challenge.json"},
+		{"Read", "file_path", `C:\repo\.workflow\local\challenge.json`},
+		{"Grep", "path", ".workflow/local"},
+		{"Glob", "pattern", ".workflow/local/*.json"},
+	} {
+		if r := ReadTool(hookInput(t, readPayload(t, tc[0], tc[1], tc[2]))); !isDeny(r) {
+			t.Errorf("%s of %s must be denied", tc[0], tc[2])
+		}
+	}
+	for _, tc := range [][3]string{
+		{"Read", "file_path", ".workflow/log/events.jsonl"},
+		{"Read", "file_path", "src/main.go"},
+		{"Grep", "pattern", "local"},
+		{"Glob", "pattern", "**/*.go"},
+	} {
+		if r := ReadTool(hookInput(t, readPayload(t, tc[0], tc[1], tc[2]))); isDeny(r) {
+			t.Errorf("%s of %s must stay allowed", tc[0], tc[2])
+		}
+	}
+}

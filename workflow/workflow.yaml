@@ -153,6 +153,13 @@ roster:
                reference/ux/18-patterns-antipatterns.md, reference/ux/21-agent-checklists.md] }
   - { name: auditor, gating: true, phases: [ship], model: opus,
       tools: [Read, Grep, Glob], maxTurns: 30 }
+  # One competence, many standards (the lens-reviewer pattern): the assigned
+  # standard is the verdict `scope:`. Idle until a regulated contract pack
+  # (packs/regulated/*) installs local.* items referencing it; its checklist
+  # corpus arrives project-side with the pack (.workflow/packs/<pack>/) and
+  # is injected at spawn.
+  - { name: compliance-reviewer, gating: true, phases: [design, build, verify, ship],
+      model: opus, tools: [Read, Grep, Glob], maxTurns: 40 }
 
 # ---------------------------------------------------------------------------
 # Record kinds (08 §3). `fields` lists payload fields the engine validates at
@@ -179,7 +186,7 @@ records:
   - { kind: test-run, fields: [cmd, exit, "summary?", "ac?", "task?", "category?", grounded, "filtered?"] }
   - { kind: verdict, fields: [agent, status, criticals, majors, "scope?"] }
   - { kind: ac-verdict, fields: [ac, status] } # status: pass|fail|deferred
-  - { kind: approval, fields: [gate, "payload_hash?", "answer_ref?"] } # gate: frame|scope|design|plan|deferral|lesson|deviation
+  - { kind: approval, fields: [gate, "payload_hash?", "answer_ref?", "challenge?"] } # gate: frame|scope|design|plan|deferral|lesson|deviation; challenge: true = verified against a statusline-delivered single-use code
   - { kind: user-answer, fields: [question, answer, "topic?"] } # hook-captured AskUserQuestion exchange (04 §8.1 anchoring); topic = inferred approval gate
   - { kind: artifact, fields: [path, status, "template?", "role?"] } # status: present|stub|missing
   - { kind: deviation, fields: [text, status] } # status: pending|acked
@@ -188,7 +195,7 @@ records:
   - { kind: origin, fields: ["commit?", attribution] }
   - { kind: commit-origin, fields: [commit, run] }
   - { kind: metric, fields: [name, value, "below_threshold?", "grounded?"] } # below_threshold engine-computed vs config.thresholds; grounded = scraped from runner output
-  - { kind: lesson, fields: [text, status, "check?"] } # status: proposed|accepted|rejected
+  - { kind: lesson, fields: [text, status, "check?", "source?", "trigger?"] } # status: proposed|accepted|rejected; trigger: the engine suggest-class (lessons status tracks its recurrence)
   - { kind: loop, fields: [ac, cause, evidence, target] } # cause: slip|design|plan
   - { kind: scope-boundary, fields: [in_scope, out_of_scope] }
   - { kind: smoke-run, fields: [cmd, exit, "target?"] }
@@ -468,7 +475,7 @@ contracts:
     phase: build
     predicate: no-open
     params: { kind: deviation, field: status, open: [pending] }
-    remediation: "Every departure from the approved design needs user ack: wf approve deviation --ref …"
+    remediation: "Every departure from the approved design needs user ack: present the deviation, then wf approve deviation"
 
   # --- 4.6 Verify ------------------------------------------------------------
   - id: verify.ac-verdicts

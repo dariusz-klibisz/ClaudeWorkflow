@@ -532,7 +532,7 @@ func (s *Store) ArchiveRun(runID string) error {
 // close — none carries meaning across runs, and two of them (tasks-mirror,
 // verdict-attempts) otherwise grow forever.
 func (s *Store) PruneLocal() {
-	for _, n := range []string{"tasks-mirror.json", "verdict-attempts.json", "stop-gate.json", "enforce-off.json"} {
+	for _, n := range []string{"tasks-mirror.json", "verdict-attempts.json", "stop-gate.json", "enforce-off.json", "challenge.json"} {
 		_ = os.Remove(s.LocalPath(n))
 	}
 }
