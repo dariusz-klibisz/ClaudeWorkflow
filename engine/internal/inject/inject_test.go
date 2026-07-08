@@ -100,6 +100,105 @@ func TestUXDesignerStage(t *testing.T) {
 	}
 }
 
+// The implementer briefing scopes the spawn to the single active task:
+// tid, DoD, AC text + verification command, design refs, and the recorded
+// out-of-scope boundary — with no verdict-block contract.
+func TestImplementerBriefing(t *testing.T) {
+	c := newCtl(t)
+	if _, err := c.RunStart("diff", "new"); err != nil {
+		t.Fatal(err)
+	}
+	rec := func(kind string, data map[string]any) {
+		t.Helper()
+		if _, err := c.Record(kind, data, false, "agent"); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+	}
+
+	// no task in flight → the briefing says so instead of guessing
+	out, err := Agent(c, "implementer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "no single active task") {
+		t.Errorf("taskless spawn must be told to return:\n%s", out)
+	}
+
+	rec("requirement", map[string]any{"rid": "SWR-1", "level": "software", "text": "t", "status": "active",
+		"acs": []any{map[string]any{"id": "AC-1", "text": "empty file yields error", "verifiable": true}}})
+	rec("verification-strategy", map[string]any{"ac": "AC-1", "method": "unit", "command": "go test ./pkg/ -run TestEmpty"})
+	rec("option-set", map[string]any{"stage": "system", "candidates": []any{"a", "b"},
+		"selected": "a", "rejected": []any{map[string]any{"id": "b", "reason": "r"}}})
+	rec("scope-boundary", map[string]any{"in_scope": []any{"pkg/"}, "out_of_scope": []any{"legacy/"}})
+	rec("task", map[string]any{"tid": "T-1", "subject": "handle empty files", "status": "in_progress",
+		"dod": []any{"red then green"}, "ac_links": []any{"AC-1"}})
+
+	out, err = Agent(c, "implementer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"work scope",
+		"assigned task for this spawn: T-1 — handle empty files",
+		"red then green",                // DoD
+		"AC-1: empty file yields error", // AC text
+		"go test ./pkg/ -run TestEmpty", // exact verification invocation
+		"approved design selections",    // conformance anchor
+		"system:a",                      // the selected option
+		"out of scope (do not touch",    // boundary
+		"legacy/",                       //
+		"reference/coding",              // corpus routing
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("implementer briefing missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "```verdict") {
+		t.Errorf("author-side briefing must not carry the verdict contract:\n%s", out)
+	}
+}
+
+// On a designer loop re-entry, the briefing surfaces the finding CONTENT of
+// the latest failing design-stage verdicts — the rework must see WHAT
+// failed, not just the counts.
+func TestDesignerLoopReentryCarriesPriorFindings(t *testing.T) {
+	c := newCtl(t)
+	if _, err := c.RunStart("diff", "new"); err != nil {
+		t.Fatal(err)
+	}
+	rec := func(kind string, data map[string]any) {
+		t.Helper()
+		if _, err := c.Record(kind, data, false, "agent"); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+	}
+	for _, stage := range []string{"system", "software"} {
+		rec("option-set", map[string]any{"stage": stage, "candidates": []any{"a", "b"},
+			"selected": "a", "rejected": []any{map[string]any{"id": "b", "reason": "r"}}})
+	}
+	rec("verdict", map[string]any{"agent": "design-reviewer", "status": "changes-required",
+		"criticals": 1, "majors": 0,
+		"findings": []any{"[critical] pkg/api.go: unbounded queue — 01 §backpressure"}})
+
+	out, err := Agent(c, "designer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "loop re-entry") {
+		t.Fatalf("expected loop re-entry stage:\n%s", out)
+	}
+	if !strings.Contains(out, "unbounded queue") {
+		t.Errorf("re-entry briefing must carry the prior failing findings:\n%s", out)
+	}
+
+	// a later clean verdict supersedes the failure — no stale findings
+	rec("verdict", map[string]any{"agent": "design-reviewer", "status": "clean", "criticals": 0, "majors": 0})
+	out, _ = Agent(c, "designer")
+	if strings.Contains(out, "unbounded queue") {
+		t.Errorf("superseded failure must not haunt the briefing:\n%s", out)
+	}
+}
+
 // Gating reviewers keep the full contract: review scope, mode when derived,
 // corpus, and the verdict block.
 func TestAgentBriefsGatingReviewer(t *testing.T) {

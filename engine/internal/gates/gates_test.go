@@ -2,6 +2,7 @@ package gates
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -101,9 +102,9 @@ func TestStopAllowsWhenOnlyUserBlocked(t *testing.T) {
 	rec("requirement", map[string]any{"rid": "SWR-1", "level": "software", "text": "t", "status": "active",
 		"acs": []any{map[string]any{"id": "AC-1", "text": "a", "verifiable": true}}})
 	rec("completeness", map[string]any{"items": []any{
-		map[string]any{"case": "error", "disposition": "covered"},
-		map[string]any{"case": "empty", "disposition": "covered"},
-		map[string]any{"case": "concurrent", "disposition": "n/a"},
+		map[string]any{"case": "error", "disposition": "covered:AC-1"},
+		map[string]any{"case": "empty", "disposition": "covered:AC-1"},
+		map[string]any{"case": "concurrent", "disposition": "accepted-risk: single-threaded"},
 	}})
 	rec("verdict", map[string]any{"agent": "adversary", "scope": "abuse-case", "status": "clean", "criticals": 0, "majors": 0})
 	rec("verdict", map[string]any{"agent": "lens-reviewer", "scope": "security", "status": "clean", "criticals": 0, "majors": 0})
@@ -254,6 +255,58 @@ func TestVerdictCaptured(t *testing.T) {
 	}
 	if !vs[0].Auto {
 		t.Error("captured verdict must be auto:true")
+	}
+}
+
+// Tagged finding lines from the reviewer's message are persisted on the
+// verdict record — the counts alone told a loop re-entry nothing.
+func TestVerdictFindingsPersisted(t *testing.T) {
+	c := newCtl(t)
+	run, _ := c.RunStart("diff", "fix")
+	run.Phase = "build"
+	_ = c.Store.SaveRun(run)
+	msg := "Findings:\n" +
+		"[critical] pkg/db.go:42: SQL built by string concat — GEN-SEC-02\n" +
+		"[critical] pkg/db.go:42: SQL built by string concat — GEN-SEC-02\n" + // dup: transcript echo
+		"- [major] pkg/api.go:7: error swallowed — GEN-ERR-03\n" +
+		"PATH: admin takeover ← forge session cookie [feasibility: high] — unmitigated\n" +
+		"prose that is not a finding line\n" +
+		"```verdict\nstatus: changes-required\ncriticals: 2\nmajors: 1\n```\n"
+	r := Verdict(c, hookInput(t, subagentStop("wf:code-security-reviewer", "a9", msg)))
+	if isBlockDecision(r) {
+		t.Fatalf("parseable verdict must not block: %+v", r)
+	}
+	env, _ := c.Env(run)
+	vs := env.Records("verdict")
+	if len(vs) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(vs))
+	}
+	fl, _ := vs[0].Data["findings"].([]any)
+	if len(fl) != 3 {
+		t.Fatalf("want 3 deduped finding lines, got %d: %v", len(fl), fl)
+	}
+	joined := fmt.Sprint(fl...)
+	for _, want := range []string{"SQL built by string concat", "error swallowed", "admin takeover"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("findings missing %q: %v", want, fl)
+		}
+	}
+	if strings.Contains(joined, "prose that is not") {
+		t.Errorf("untagged prose must not be captured: %v", fl)
+	}
+
+	// a clean verdict with no tagged lines carries no findings key
+	r = Verdict(c, hookInput(t, subagentStop("wf:code-quality-reviewer", "a10", goodVerdict)))
+	if isBlockDecision(r) {
+		t.Fatal("clean verdict blocked")
+	}
+	env, _ = c.Env(run)
+	for _, v := range env.Records("verdict") {
+		if a, _ := v.Data["agent"].(string); a == "code-quality-reviewer" {
+			if _, has := v.Data["findings"]; has {
+				t.Errorf("finding-free message must not set findings: %+v", v.Data)
+			}
+		}
 	}
 }
 

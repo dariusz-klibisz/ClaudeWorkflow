@@ -185,19 +185,19 @@ records:
   - { kind: classification, fields: [family, intent, restated] }
   - { kind: risk, fields: [signals, lenses] }
   - { kind: ambiguity, fields: [lens, "text?", disposition, "none?"] } # disposition: resolved|logged|deferred|none
-  - { kind: requirement, fields: [rid, level, text, acs, status] } # acs[]: {id, text, verifiable}
+  - { kind: requirement, fields: [rid, level, text, acs, status, "origin?"] } # acs[]: {id, text, verifiable}; origin = the origin-record id a fix-intent regression requirement traces to
   - { kind: completeness, fields: [items] } # items[]: {case, disposition}
-  - { kind: assumption, fields: [text, "high_risk?"] }
+  - { kind: assumption, fields: [text, status, "high_risk?"] } # status: open|validated|invalidated — high-risk assumptions must be discharged by Verify
   - { kind: context-map, fields: [entries, sufficiency] }
   - { kind: reclassify, fields: [result, "family?", "intent?"] } # result: confirmed|changed
   - { kind: option-set, fields: [stage, candidates, selected, rejected] }
   - { kind: threat, fields: [entries] }
-  - { kind: attack-path, fields: [entries, mitigated] }
+  - { kind: attack-path, fields: [path, feasibility, disposition] } # one record per adversary attack-tree path; feasibility: high|med|low; disposition: open|mitigated|adr-accepted (adr-accepted requires an ADR artifact)
   - { kind: task, fields: [tid, subject, dod, "ac_links?", status] } # status: open|in_progress|done|carried
   - { kind: verification-strategy, fields: [ac, method, "command?"] }
   - { kind: deps, fields: [verdict, "detail?"] } # verdict: present|missing|n/a
   - { kind: test-run, fields: [cmd, exit, "summary?", "ac?", "task?", "category?", grounded, "filtered?"] }
-  - { kind: verdict, fields: [agent, status, criticals, majors, "scope?", "reason?"] } # reason required when status=n/a (write-time)
+  - { kind: verdict, fields: [agent, status, criticals, majors, "scope?", "reason?", "findings?"] } # reason required when status=n/a (write-time); findings = hook-captured finding lines from the reviewer transcript (survive compaction/loops)
   - { kind: ac-verdict, fields: [ac, status] } # status: pass|fail|deferred
   - { kind: approval, fields: [gate, "payload_hash?", "answer_ref?", "challenge?", "approved_refs?", "refs_hash?"] } # gate: frame|scope|design|plan|deferral|lesson|deviation; challenge: true = verified against a statusline-delivered single-use code; approved_refs = engine-computed record identities the approval binds to (trace reports drift)
   - { kind: user-answer, fields: [question, answer, "topic?"] } # hook-captured AskUserQuestion exchange (04 §8.1 anchoring); topic = inferred approval gate
@@ -285,6 +285,16 @@ contracts:
     predicate: record-exists
     params: { kind: origin }
     remediation: "Discover the defect origin: wf origin discover (or wf record origin --attribution …)"
+  - id: frame.fix-regression
+    phase: frame
+    families: [diff]
+    when: { intents: [fix] }
+    predicate: per-each
+    params:
+      kind: origin
+      item: { predicate: linked-record, params: { kind: requirement, link: origin } }
+    waivable: true
+    remediation: "Fix intent ⇒ a regression requirement traced to the origin: wf record requirement … origin=<origin-record-id> with an AC that the defect no longer reproduces — its red run IS the reproduction (origin inconclusive: waive with the reason)"
 
   # --- 4.2 Context ------------------------------------------------------------
   - id: context.map
@@ -334,7 +344,8 @@ contracts:
     when: { config: { ux: true } }
     predicate: record-exists
     params: { kind: option-set, filter: { stage: ux } }
-    remediation: "Enumerate UX candidates: wf record option-set --stage ux …"
+    waivable: true
+    remediation: "Enumerate UX candidates: wf record option-set --stage ux … (change bears no UI: waive with the reason — the reviewer's n/a alone doesn't lift this)"
   - id: design.reviewed
     phase: design
     families: [diff, artifact]
@@ -362,6 +373,21 @@ contracts:
     predicate: verdict-in
     params: { agent: adversary, scope: attack-tree, statuses: [clean, safe, n/a] }
     remediation: "Spawn @wf:adversary in attack-tree mode; mitigate or ADR-accept high-feasibility paths"
+  - id: design.attack-paths-recorded
+    phase: design
+    families: [diff, artifact]
+    when: { signals: [auth, network, boundary] }
+    predicate: record-exists
+    params: { kind: attack-path }
+    waivable: true
+    remediation: "Record each adversary attack-tree path: wf record attack-path path=\"…\" feasibility=high|med|low disposition=open|mitigated|adr-accepted (adversary found no viable paths: waive with the reason)"
+  - id: design.attack-paths-dispositioned
+    phase: design
+    families: [diff, artifact]
+    when: { signals: [auth, network, boundary] }
+    predicate: no-open
+    params: { kind: attack-path, field: disposition, open: [open] }
+    remediation: "Every recorded attack path ends mitigated or ADR-accepted: wf record attack-path updates=<id> disposition=mitigated|adr-accepted (adr-accepted requires the ADR authored on disk)"
   - id: design.critic
     phase: design
     families: [diff, artifact]
@@ -522,6 +548,13 @@ contracts:
     predicate: no-open
     params: { kind: ac-verdict, field: status, open: [fail] }
     remediation: "Undispositioned failing AC ⇒ loop: wf loop --ac <id> --cause slip|design|plan --evidence …"
+  - id: verify.assumptions-discharged
+    phase: verify
+    families: [diff, artifact]
+    predicate: no-open
+    params: { kind: assumption, field: status, open: [open], filter: { high_risk: true } }
+    waivable: true
+    remediation: "Discharge each high-risk assumption: wf record assumption updates=<id> status=validated|invalidated (name the evidence in text; an invalidated assumption surfaces at Ship)"
   - id: verify.adversary-confirm
     phase: verify
     families: [diff, artifact]

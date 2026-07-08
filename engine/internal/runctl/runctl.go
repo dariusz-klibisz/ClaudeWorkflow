@@ -505,6 +505,18 @@ func (c *Ctl) validateRecord(r *store.Run, kind string, data map[string]any, aut
 				return errors.New("context-map requires a non-empty sufficiency judgment")
 			}
 		}
+	case "assumption":
+		// assumptions have a lifecycle now: recorded open at Context,
+		// discharged (validated|invalidated) by Verify — an assumption that
+		// was never revisited used to surface only via a failing AC, or not
+		// at all.
+		if s, present := data["status"]; present {
+			switch s {
+			case "open", "validated", "invalidated":
+			default:
+				return fmt.Errorf("assumption status must be open|validated|invalidated, got %q", s)
+			}
+		}
 	case "completeness":
 		if items, present := data["items"]; present {
 			raw, ok := items.([]any)
@@ -521,6 +533,12 @@ func (c *Ctl) validateRecord(r *store.Run, kind string, data map[string]any, aut
 				if strings.TrimSpace(cs) == "" || strings.TrimSpace(disp) == "" {
 					return fmt.Errorf("completeness item %d needs both case and disposition", i+1)
 				}
+				// traceable disposition vocabulary: free prose let a case
+				// dispositioned "must handle" drop silently between Frame
+				// and Build — covered: names the AC that carries it.
+				if !completenessDispositionOK(disp) {
+					return fmt.Errorf("completeness item %d disposition %q must be covered:<AC id>, out-of-scope: <reason>, or accepted-risk: <reason>", i+1, disp)
+				}
 			}
 		}
 	case "option-set":
@@ -528,6 +546,49 @@ func (c *Ctl) validateRecord(r *store.Run, kind string, data map[string]any, aut
 		// re-proposed"; until now only design-reviewer prose enforced it.
 		if err := c.validateOptionSet(r, data); err != nil {
 			return err
+		}
+	case "attack-path":
+		// one record per adversary attack-tree path; the design gate holds
+		// every path to mitigated|adr-accepted — "mitigate or ADR-accept"
+		// used to be transcript-only rhetoric.
+		if p, present := data["path"]; present {
+			if s, _ := p.(string); strings.TrimSpace(s) == "" {
+				return errors.New("attack-path requires a non-empty path (root goal ← steps)")
+			}
+		}
+		if f, present := data["feasibility"]; present {
+			switch f {
+			case "high", "med", "low":
+			default:
+				return fmt.Errorf("attack-path feasibility must be high|med|low, got %q", f)
+			}
+		}
+		if d, present := data["disposition"]; present {
+			switch d {
+			case "open", "mitigated":
+			case "adr-accepted":
+				// accepting a path by ADR is a claim the ledger must back:
+				// an ADR artifact record must exist (the phase artifact
+				// sweeps hold it to authored-on-disk)
+				env, err := c.Env(r)
+				if err != nil {
+					return err
+				}
+				found := false
+				for _, a := range env.Records("artifact") {
+					if t, _ := a.Data["template"].(string); t == "adr" {
+						if s, _ := a.Data["status"].(string); s != "missing" {
+							found = true
+							break
+						}
+					}
+				}
+				if !found {
+					return errors.New("disposition=adr-accepted requires an ADR record: wf doc new adr --slug … first")
+				}
+			default:
+				return fmt.Errorf("attack-path disposition must be open|mitigated|adr-accepted, got %q", d)
+			}
 		}
 	case "verdict":
 		// agent must be a roster name (scoped "wf:" prefixes are normalized;
@@ -638,6 +699,19 @@ func (c *Ctl) validateRecord(r *store.Run, kind string, data map[string]any, aut
 		}
 	}
 	return nil
+}
+
+// completenessDispositionOK enforces the traceable disposition vocabulary:
+// covered:<AC id> (that AC's tests carry the case), out-of-scope: <reason>,
+// accepted-risk: <reason>.
+func completenessDispositionOK(d string) bool {
+	d = strings.TrimSpace(d)
+	for _, p := range []string{"covered:", "out-of-scope:", "accepted-risk:"} {
+		if strings.HasPrefix(d, p) && strings.TrimSpace(strings.TrimPrefix(d, p)) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // artifactPathAndTemplate resolves path+template for an artifact write,

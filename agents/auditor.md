@@ -28,6 +28,14 @@ forces, parks, `WF_ENFORCE` firings).
    no task neither done nor carried (the gate enforces these — your job is
    to catch *miscategorized* items, e.g. a "done" task whose DoD records
    don't support it).
+   Scope adherence: the trace mechanically flags edits touching path-like
+   `out_of_scope` entries — judge each flag's disposition; also read the
+   PROSE out-of-scope entries against the edit records yourself (the
+   engine can't). Undispositioned out-of-scope work = major; presented as
+   in-scope delivery = critical.
+   Staleness: a `stale-verdicts` trace finding means edits landed after
+   the last gating review — judge whether the late change plausibly needed
+   re-review; "docs only" is a fine disposition, a logic change is not.
 5. Evidence-pairing probe: `wf report` lists weakly-paired red→green tasks
    (same runner, diverging selectors — the green may not exercise what the
    red exercised). For each, judge whether the green plausibly covers the

@@ -57,11 +57,17 @@ func TestTraceFindingsAndIdempotence(t *testing.T) {
 		t.Fatal(err)
 	}
 	open := openFindings(t, c)
-	if len(open) != 3 {
-		t.Fatalf("want 3 open findings (force, followup, ambiguity), got %d\n%s", len(open), report)
+	// 4 findings: force, followup, ambiguity + the vacated-signals finding
+	// (frame was forced without a risk scan — the signal-conditioned
+	// security items silently never applied; that must be visible)
+	if len(open) != 4 {
+		t.Fatalf("want 4 open findings (force, followup, ambiguity, vacated-signals), got %d\n%s", len(open), report)
 	}
 	if !strings.Contains(report, "force") || !strings.Contains(report, "followup") {
 		t.Errorf("report must name the finding classes:\n%s", report)
+	}
+	if !strings.Contains(report, "without a risk scan") {
+		t.Errorf("forced frame without risk record must surface the vacated security items:\n%s", report)
 	}
 	if !strings.Contains(report, "WAIVED") && !strings.Contains(report, "exited") {
 		t.Errorf("report must show phase coverage:\n%s", report)
@@ -72,8 +78,8 @@ func TestTraceFindingsAndIdempotence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(openFindings(t, c)); got != 3 {
-		t.Fatalf("trace must be idempotent: want 3, got %d", got)
+	if got := len(openFindings(t, c)); got != 4 {
+		t.Fatalf("trace must be idempotent: want 4, got %d", got)
 	}
 
 	// disposition one; re-run keeps it closed and doesn't recreate
@@ -83,8 +89,8 @@ func TestTraceFindingsAndIdempotence(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _ = Trace(c)
-	if got := len(openFindings(t, c)); got != 2 {
-		t.Fatalf("resolved finding must stay resolved after re-trace: want 2 open, got %d", got)
+	if got := len(openFindings(t, c)); got != 3 {
+		t.Fatalf("resolved finding must stay resolved after re-trace: want 3 open, got %d", got)
 	}
 }
 
@@ -138,6 +144,82 @@ func TestTraceApprovalDrift(t *testing.T) {
 	}
 	if got := len(openFindings(t, c)); got != before {
 		t.Fatalf("re-approved baseline must create no new findings: %d -> %d", before, got)
+	}
+}
+
+// Path-like out_of_scope entries are mechanically checked against edit
+// records; prose entries are skipped (the auditor's to judge).
+func TestTraceScopeBoundaryEdits(t *testing.T) {
+	c := newCtl(t)
+	_, _ = c.RunStart("diff", "new")
+	rec := func(kind string, data map[string]any) {
+		t.Helper()
+		if _, err := c.Record(kind, data, false, "agent"); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+	}
+	rec("scope-boundary", map[string]any{
+		"in_scope":     []any{"pkg/"},
+		"out_of_scope": []any{"legacy/", "*.sql", "authentication rework"},
+	})
+	rec("edit", map[string]any{"path": "pkg/api.go"})          // in scope
+	rec("edit", map[string]any{"path": "legacy/db.go"})        // prefix hit
+	rec("edit", map[string]any{"path": "migrations/init.sql"}) // glob-basename hit
+	if _, err := Trace(c); err != nil {
+		t.Fatal(err)
+	}
+	var hits []string
+	for _, f := range openFindings(t, c) {
+		if key, _ := f.Data["key"].(string); strings.HasPrefix(key, "scope:") {
+			hits = append(hits, f.Data["text"].(string))
+		}
+	}
+	if len(hits) != 2 {
+		t.Fatalf("want 2 out-of-scope edit findings, got %d: %v", len(hits), hits)
+	}
+	joined := strings.Join(hits, "\n")
+	for _, want := range []string{"legacy/db.go", "migrations/init.sql"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing out-of-scope hit for %s:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "pkg/api.go") {
+		t.Errorf("in-scope edit must not be flagged:\n%s", joined)
+	}
+	// prose entry produced no finding — nothing matches "authentication rework"
+}
+
+// Edits recorded after the latest gating verdict surface as a medium
+// staleness finding; a fresher verdict clears the condition.
+func TestTraceVerdictStaleness(t *testing.T) {
+	c := newCtl(t)
+	_, _ = c.RunStart("diff", "new")
+	rec := func(kind string, data map[string]any) {
+		t.Helper()
+		if _, err := c.Record(kind, data, false, "agent"); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+	}
+	stale := func() bool {
+		t.Helper()
+		if _, err := Trace(c); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range openFindings(t, c) {
+			if key, _ := f.Data["key"].(string); key == "stale-verdicts" {
+				return true
+			}
+		}
+		return false
+	}
+	rec("edit", map[string]any{"path": "pkg/a.go"})
+	rec("verdict", map[string]any{"agent": "code-quality-reviewer", "status": "clean", "criticals": 0, "majors": 0})
+	if stale() {
+		t.Fatal("verdict newer than all edits must not be stale")
+	}
+	rec("edit", map[string]any{"path": "pkg/b.go"})
+	if !stale() {
+		t.Fatal("edit after the latest gating verdict must surface staleness")
 	}
 }
 

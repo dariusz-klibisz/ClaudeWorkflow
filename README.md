@@ -147,7 +147,7 @@ wf pack install <dir-or-yaml>  add-only contract packs (validated before merge);
 wf doctor [--bootstrap]        state health, ledger hash-chain verification,
                                corpus snapshot age · verifies AND heals the
                                hook engine
-wf selftest                    39 in-scaffold enforcement scenarios
+wf selftest                    46 in-scaffold enforcement scenarios
 ```
 
 ## Updating

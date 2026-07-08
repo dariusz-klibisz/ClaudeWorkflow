@@ -340,6 +340,87 @@ func Run(specPath string) int {
 	target15, e15b := c6.Loop("AC-1", "audit", "auditor critical: RTM contradicts the diff")
 	t.check("S15b failing audit grounds the loop back to verify", e15b == nil && target15 == "verify", fmt.Sprint(target15, e15b))
 
+	// S16: attack-path enforcement — every recorded path must end
+	// mitigated or adr-accepted; adr-accepted needs a real ADR record.
+	dir7, err := os.MkdirTemp("", "wf-selftest16-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "selftest:", err)
+		return 1
+	}
+	defer os.RemoveAll(dir7)
+	st7, _ := store.Open(dir7, true)
+	c7 := &runctl.Ctl{Store: st7, Spec: sp, Config: &store.Config{}}
+	_, _ = c7.RunStart("diff", "new")
+	run7, _ := c7.Store.LoadRun()
+	run7.Phase = "design"
+	run7.ExitedPh = []string{"frame", "context"}
+	_ = c7.Store.SaveRun(run7)
+	_, _ = c7.Record("risk", map[string]any{"signals": []any{"auth"}, "lenses": []any{"security"}}, false, "agent")
+	apEv, _ := c7.Record("attack-path", map[string]any{"path": "admin takeover ← forged cookie", "feasibility": "high", "disposition": "open"}, false, "agent")
+	findings16, _, _ := c7.PhaseExit(false, "")
+	openPath := false
+	for _, f := range findings16 {
+		if f.ID == "design.attack-paths-dispositioned" {
+			openPath = true
+		}
+	}
+	t.check("S16a open attack path blocks design exit", openPath, fmt.Sprint(findings16))
+	_, e16b := c7.Record("attack-path", map[string]any{"updates": apEv.ID, "disposition": "adr-accepted"}, false, "agent")
+	t.check("S16b adr-accepted without an ADR record refused", e16b != nil, fmt.Sprint(e16b))
+	_, _ = c7.Record("attack-path", map[string]any{"updates": apEv.ID, "disposition": "mitigated"}, false, "agent")
+	findings16b, _, _ := c7.PhaseExit(false, "")
+	stillOpen := false
+	for _, f := range findings16b {
+		if f.ID == "design.attack-paths-dispositioned" {
+			stillOpen = true
+		}
+	}
+	t.check("S16c mitigated path clears the item", !stillOpen, fmt.Sprint(findings16b))
+
+	// S17: assumption lifecycle — an open high-risk assumption blocks
+	// verify exit until discharged.
+	run7, _ = c7.Store.LoadRun()
+	run7.Phase = "verify"
+	run7.ExitedPh = []string{"frame", "context", "design", "plan", "build"}
+	_ = c7.Store.SaveRun(run7)
+	asEv, _ := c7.Record("assumption", map[string]any{"text": "prod db reachable", "status": "open", "high_risk": true}, false, "agent")
+	findings17, _, _ := c7.PhaseExit(false, "")
+	openAssumption := false
+	for _, f := range findings17 {
+		if f.ID == "verify.assumptions-discharged" {
+			openAssumption = true
+		}
+	}
+	t.check("S17a open high-risk assumption blocks verify exit", openAssumption, fmt.Sprint(findings17))
+	_, e17b := c7.Record("assumption", map[string]any{"updates": asEv.ID, "status": "checked"}, false, "agent")
+	t.check("S17b unknown assumption status refused", e17b != nil, fmt.Sprint(e17b))
+	_, _ = c7.Record("assumption", map[string]any{"updates": asEv.ID, "status": "validated"}, false, "agent")
+	findings17b, _, _ := c7.PhaseExit(false, "")
+	stillOpenA := false
+	for _, f := range findings17b {
+		if f.ID == "verify.assumptions-discharged" {
+			stillOpenA = true
+		}
+	}
+	t.check("S17c discharged assumption clears the item", !stillOpenA, fmt.Sprint(findings17b))
+
+	// S18: the scope boundary bites — an edit under a path-like
+	// out_of_scope entry becomes a high trace finding.
+	_, _ = c7.Record("scope-boundary", map[string]any{"in_scope": []any{"pkg/"}, "out_of_scope": []any{"legacy/"}}, false, "agent")
+	_, _ = c7.Record("edit", map[string]any{"path": "legacy/db.go"}, true, "hook")
+	_, e18 := views.Trace(c7)
+	scopeHit := false
+	if e18 == nil {
+		run7, _ = c7.Store.LoadRun()
+		env18, _ := c7.Env(run7)
+		for _, tf := range env18.Records("trace-finding") {
+			if k, _ := tf.Data["key"].(string); strings.HasPrefix(k, "scope:") {
+				scopeHit = true
+			}
+		}
+	}
+	t.check("S18 out-of-scope edit surfaces as a trace finding", e18 == nil && scopeHit, fmt.Sprint(e18))
+
 	fmt.Printf("selftest: %d scenario checks, %d failure(s)\n", t.checks, len(t.failures))
 	return len(t.failures)
 }

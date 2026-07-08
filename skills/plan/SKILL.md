@@ -29,6 +29,10 @@ Contract first:
   with custom wrappers (`./scripts/test.sh`) can add them to
   `.workflow/config.json` under `"runners": […]`.
 - `wf record scope-boundary --json '{"in_scope":[…],"out_of_scope":[…]}'`
+  — where the boundary is code, write out_of_scope entries as paths/globs
+  (`src/auth/`, `*.sql`, `engine/legacy.go`): those are MECHANICALLY checked
+  against the run's edit records at Ship (`wf trace` flags any touch as a
+  high finding); prose entries stay auditor-judged
 - Deferred Frame ambiguities: disposition each (the gate lists them) — a
   new ambiguity record with `updates=<id>` and the final disposition, or a
   user-approved deferral (`wf approve deferral` first)

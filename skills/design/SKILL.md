@@ -8,6 +8,9 @@ description: wf phase 3 (Design) — staged option evaluation to a reviewed, cri
 Trivial diff with no design decisions? `wf phase waive design --reason "…"`
 (recorded, surfaced at Ship). Otherwise, contract first:
 
+- unfamiliar territory (new library, external API, prior-art question):
+  spawn `@wf:researcher` (design mode) first — it contributes sourced
+  candidate approaches that feed the designer; it never selects
 - spawn `@wf:designer` — once per stage, sequentially: the SubagentStart
   briefing assigns the stage (system while no system option-set exists,
   then software) and routes the design corpus. Record its returned
@@ -27,7 +30,12 @@ Trivial diff with no design decisions? `wf phase waive design --reason "…"`
   override it)
 - security signals present: `wf record threat --json '{"entries":[…]}'`
   (STRIDE over the trust boundaries) and spawn `@wf:adversary`
-  (attack-tree mode); mitigate or ADR-accept high-feasibility paths
+  (attack-tree mode). Record each PATH the adversary returns:
+  `wf record attack-path path="<root goal> ← <steps>" feasibility=high|med|low
+  disposition=open|mitigated|adr-accepted` — the gate holds every path to
+  mitigated or adr-accepted (`design.attack-paths-dispositioned`;
+  adr-accepted requires the ADR to exist first). No viable paths found:
+  waive `design.attack-paths-recorded` with the reason
 - spawn `@wf:critic` — independent go/no-go; a `risky` verdict passes only
   after `wf record disposition ref=<verdict-id> text="…"` per concern
 - architectural decision: `wf doc new adr --slug <decision-name>` (engine

@@ -12,8 +12,10 @@ Contract first:
   for the mapping; record what you verified, not what you assume). The gate
   expects ≥3 entries (`context.map-depth`) — the code, its tests, its
   callers/config all count; a genuinely smaller surface: waive with reason
-- `wf record assumption text="…" high_risk=true|false` — for every
-  assumption the map could not verify
+- `wf record assumption text="…" status=open high_risk=true|false` — for
+  every assumption the map could not verify. Assumptions have a lifecycle:
+  recorded `open` here, discharged `validated|invalidated` at Verify
+  (high-risk ones gate the exit there — an assumption is a debt, not a note)
 - `wf record reclassify result=confirmed` — the checkpoint: does the
   classification survive contact with the map? If not:
   `wf run branch --family <f> --intent <i> --reason "reclassify: …"`
@@ -26,7 +28,10 @@ Contract first:
   baseline — records added later without re-approval surface as approval
   drift at Ship
 - `@wf:researcher` verdict when external research ran; otherwise
-  `wf contract waive context.research-grounded --reason "…"`
+  `wf contract waive context.research-grounded --reason "…"`. Fold the
+  researcher's load-bearing answers into context-map entries (with the
+  source named in the entry text) — transcripts die at compaction; the map
+  is what Design and Plan actually read
 
 Procedure:
 1. Map before deciding: read the code paths the task touches; verify the

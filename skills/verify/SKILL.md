@@ -18,8 +18,18 @@ Contract first:
     --evidence "expected X, observed Y"` — cause=slip re-opens Build;
     design/plan re-open those phases. Caps: 10 loops/run, 2 slip-loops/AC
     (the 3rd must name a structural cause)
+- Discharge each high-risk assumption from Context:
+  `wf record assumption updates=<id> status=validated|invalidated` naming
+  the evidence in text (`verify.assumptions-discharged`; an invalidated one
+  surfaces at Ship for a disposition). An open high-risk assumption is
+  undischarged debt, not background noise
 - Confirmation verdicts (diff/artifact): `@wf:adversary` (red-team) and
-  `@wf:design-conformance-reviewer`; ux projects add `@wf:ux-reviewer`
+  `@wf:design-conformance-reviewer`; ux projects add `@wf:ux-reviewer`.
+  **Spawn these only if edits or loops occurred after their Build
+  verdicts** — verdicts carry forward, so an unchanged diff is already
+  covered and a re-spawn is opus-priced ceremony. If edits DID land after
+  a verdict and you skip anyway, `wf trace` surfaces it as a staleness
+  finding at Ship
 - diff: run the secret scan (e.g. `gitleaks detect`) — auto-captured as
   category=secret-scan; a filtered or exit-less run never grounds
 - configured quality floors (config `thresholds`): run the suite with

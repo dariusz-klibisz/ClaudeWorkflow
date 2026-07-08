@@ -135,8 +135,13 @@ func Agent(c *runctl.Ctl, agentName string) (string, error) {
 		if agentName == "compliance-reviewer" {
 			complianceBriefing(c, &b)
 		}
-	} else if stage := designStage(c, r, agentName); stage != "" {
+	} else if agentName == "implementer" {
+		implementerBriefing(c, r, &b)
+	} else if stage, reentry := designStage(c, r, agentName); stage != "" {
 		fmt.Fprintf(&b, "assigned design stage for this spawn: %s — name it in the `stage` field of the returned option-set.\n", stage)
+		if reentry {
+			priorDesignFindings(c, r, &b)
+		}
 	}
 	if len(ag.Corpus) > 0 {
 		root := pluginRoot(c)
@@ -212,18 +217,19 @@ func agentMode(agent, phase string) string {
 // designStage derives the stage a designer spawn is for from the recorded
 // option-sets — deterministic staging: system is fixed before software
 // (mirrors agentMode's phase-derived scopes; there is no per-spawn
-// addressing channel). ux-designer always works the ux stage.
-func designStage(c *runctl.Ctl, r *store.Run, agent string) string {
+// addressing channel). ux-designer always works the ux stage. The second
+// return marks a loop re-entry (both stages already recorded).
+func designStage(c *runctl.Ctl, r *store.Run, agent string) (string, bool) {
 	switch agent {
 	case "ux-designer":
-		return "ux"
+		return "ux", false
 	case "designer":
 	default:
-		return ""
+		return "", false
 	}
 	env, err := c.Env(r)
 	if err != nil {
-		return ""
+		return "", false
 	}
 	stages := map[string]bool{}
 	for _, rec := range env.Records("option-set") {
@@ -233,12 +239,186 @@ func designStage(c *runctl.Ctl, r *store.Run, agent string) string {
 	}
 	switch {
 	case !stages["system"]:
-		return "system"
+		return "system", false
 	case !stages["software"]:
-		return "software"
+		return "software", false
 	default:
-		return "system or software (loop re-entry — state which; carry the recorded rejected option IDs forward, a rejected option may not reappear)"
+		return "system or software (loop re-entry — state which; carry the recorded rejected option IDs forward, a rejected option may not reappear)", true
 	}
+}
+
+// priorDesignFindings surfaces the finding CONTENT of the latest failing
+// design-stage verdicts on a loop re-entry — the rework must see WHAT
+// failed, not just that something did (transcripts die at compaction; the
+// verdict record's hook-captured `findings` lines are the durable copy).
+func priorDesignFindings(c *runctl.Ctl, r *store.Run, b *strings.Builder) {
+	env, err := c.Env(r)
+	if err != nil {
+		return
+	}
+	latest := map[string][]any{}
+	for _, v := range env.Records("verdict") {
+		agent, _ := v.Data["agent"].(string)
+		switch agent {
+		case "design-reviewer", "critic", "adversary":
+		default:
+			continue
+		}
+		switch s, _ := v.Data["status"].(string); s {
+		case "changes-required", "unsafe", "risky":
+			fl, _ := v.Data["findings"].([]any)
+			latest[agent] = fl // stream order: last failing verdict wins
+		default:
+			delete(latest, agent) // a later pass supersedes the failure
+		}
+	}
+	printed := false
+	for _, agent := range []string{"design-reviewer", "critic", "adversary"} {
+		fl := latest[agent]
+		if len(fl) == 0 {
+			continue
+		}
+		if !printed {
+			b.WriteString("prior failing design verdicts — findings the rework must answer:\n")
+			printed = true
+		}
+		fmt.Fprintf(b, "  %s:\n", agent)
+		for i, f := range fl {
+			if i == 5 {
+				fmt.Fprintf(b, "    … and %d more (see the verdict record)\n", len(fl)-5)
+				break
+			}
+			fmt.Fprintf(b, "    - %v\n", f)
+		}
+	}
+}
+
+// implementerBriefing scopes an implementer spawn to the single active
+// task: tid, DoD, its ACs (text + the verification command whose exact
+// invocation the capture hook recognizes), the approved design refs the
+// conformance reviewer will hold the diff to, and the recorded out-of-scope
+// boundary.
+func implementerBriefing(c *runctl.Ctl, r *store.Run, b *strings.Builder) {
+	env, err := c.Env(r)
+	if err != nil {
+		return
+	}
+	task, ok := activeTaskRecord(env)
+	if !ok {
+		b.WriteString("no single active task — the main thread marks exactly one task in_progress (wf record task updates=<id> status=in_progress) before spawning; return and say so.\n")
+		return
+	}
+	tid, _ := task.Data["tid"].(string)
+	subject, _ := task.Data["subject"].(string)
+	fmt.Fprintf(b, "assigned task for this spawn: %s — %s\n", tid, subject)
+	if dod, _ := task.Data["dod"].([]any); len(dod) > 0 {
+		b.WriteString("definition of done:\n")
+		for _, d := range dod {
+			fmt.Fprintf(b, "  - %v\n", d)
+		}
+	}
+	if acs := strList(task.Data["ac_links"]); len(acs) > 0 {
+		acText, strat := acIndex(env)
+		b.WriteString("acceptance criteria this task carries (test-first: the red test encodes the AC):\n")
+		for _, ac := range acs {
+			line := "  - " + ac
+			if t := acText[ac]; t != "" {
+				line += ": " + t
+			}
+			b.WriteString(line + "\n")
+			if s := strat[ac]; s != "" {
+				fmt.Fprintf(b, "    verification: %s — run EXACTLY this invocation (it is what the capture hook recognizes)\n", s)
+			}
+		}
+	}
+	var sels []string
+	for _, os := range env.Records("option-set") {
+		if s, _ := os.Data["selected"].(string); s != "" {
+			st, _ := os.Data["stage"].(string)
+			sels = append(sels, st+":"+s)
+		}
+	}
+	if len(sels) > 0 {
+		fmt.Fprintf(b, "approved design selections (conformance-reviewed; departures need wf record deviation, never improvised): %s\n", strings.Join(sels, ", "))
+	}
+	for _, a := range env.Records("artifact") {
+		if t, _ := a.Data["template"].(string); t == "adr" {
+			if p, _ := a.Data["path"].(string); p != "" {
+				fmt.Fprintf(b, "ADR: %s\n", p)
+			}
+		}
+	}
+	for _, sb := range env.Records("scope-boundary") {
+		if oos := strList(sb.Data["out_of_scope"]); len(oos) > 0 {
+			fmt.Fprintf(b, "out of scope (do not touch — discoveries become wf record followup): %s\n", strings.Join(oos, "; "))
+		}
+	}
+}
+
+// activeTaskRecord mirrors the task gates' selection: the single
+// in_progress task, falling back to a single open one.
+func activeTaskRecord(env *contracts.Env) (contracts.Record, bool) {
+	for _, statuses := range [][]string{{"in_progress"}, {"in_progress", "open"}} {
+		var found contracts.Record
+		count := 0
+		for _, tr := range env.Records("task") {
+			s, _ := tr.Data["status"].(string)
+			for _, want := range statuses {
+				if s == want {
+					count++
+					found = tr
+					break
+				}
+			}
+		}
+		if count == 1 {
+			return found, true
+		}
+	}
+	return contracts.Record{}, false
+}
+
+// acIndex maps AC id → requirement AC text and AC id → verification command
+// (falling back to the method when no command is recorded).
+func acIndex(env *contracts.Env) (map[string]string, map[string]string) {
+	text := map[string]string{}
+	for _, req := range env.Records("requirement") {
+		if acs, _ := req.Data["acs"].([]any); acs != nil {
+			for _, raw := range acs {
+				if m, ok := raw.(map[string]any); ok {
+					id, _ := m["id"].(string)
+					t, _ := m["text"].(string)
+					if id != "" {
+						text[id] = t
+					}
+				}
+			}
+		}
+	}
+	strat := map[string]string{}
+	for _, vs := range env.Records("verification-strategy") {
+		ac, _ := vs.Data["ac"].(string)
+		if ac == "" {
+			continue
+		}
+		if cmd, _ := vs.Data["command"].(string); cmd != "" {
+			strat[ac] = cmd
+		} else if m, _ := vs.Data["method"].(string); m != "" {
+			strat[ac] = m
+		}
+	}
+	return text, strat
+}
+
+func strList(v any) []string {
+	raw, _ := v.([]any)
+	var out []string
+	for _, el := range raw {
+		if s, ok := el.(string); ok && strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func pluginRoot(c *runctl.Ctl) string {

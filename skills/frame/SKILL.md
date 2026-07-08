@@ -29,17 +29,27 @@ lists what is still missing, with commands):
   - `wf record requirement rid=SWR-1 level=software text="…" status=active
     --json '{"acs":[{"id":"AC-1","text":"…","verifiable":true}]}'` — every AC
     must be verifiable in principle (name how)
-  - `wf record completeness --json '{"items":[{"case":"empty input","disposition":"…"}]}'`
+  - `wf record completeness --json '{"items":[{"case":"empty input","disposition":"covered:AC-2"}]}'`
     — the negative-space walk: error, empty, max, concurrent, unhappy paths.
-    The gate expects ≥3 dispositioned cases (`frame.completeness-depth`);
-    genuinely smaller spaces: waive it with the reason
+    Dispositions carry a traceable vocabulary (write-time enforced):
+    `covered:<AC id>` (that AC's tests carry the case — add the AC if none
+    does), `out-of-scope: <reason>`, or `accepted-risk: <reason>`. The gate
+    expects ≥3 dispositioned cases (`frame.completeness-depth`); genuinely
+    smaller spaces: waive it with the reason
   - spawn `@wf:adversary` (abuse-case mode) and `@wf:lens-reviewer`
     (security lens) on the framed requirements — their verdicts are captured
-    automatically at completion
+    automatically at completion; ux-enabled projects with a UI-bearing task
+    also spawn `@wf:ux-reviewer` (usability-lens mode) and record its
+    ambiguities like any other lens
 - intent fix/investigate: `wf origin discover --path <file> --text "<code
   fragment>"` (git-grounded attribution; falls back to
   `wf record origin attribution="…"` with reduced confidence when git is
   inconclusive)
+- intent fix additionally: a REGRESSION requirement traced to the origin —
+  `wf record requirement rid=SWR-n … origin=<origin-record-id>` whose AC
+  states the defect no longer reproduces (`frame.fix-regression`). Its red
+  test at Build IS the reproduction; a fix without one never proves the bug
+  existed. Origin genuinely inconclusive: waive with the reason
 
 Procedure:
 1. Restate the task in your own words. Ask the user targeted questions per

@@ -34,7 +34,11 @@ Build the attack tree for the highest-value target the design exposes; walk
 AND/OR paths to feasibility. High-feasibility paths must be mitigated in the
 design or explicitly ADR-accepted — anything else is a finding:
 `PATH: <root goal> ← <steps> [feasibility: high|med|low] — <mitigation
-status>`. Unmitigated high-feasibility path = critical.
+status>`. Unmitigated high-feasibility path = critical. Emit each PATH on
+its own line in exactly that shape — the main thread records every one as
+a structured `wf record attack-path` record, and the design gate holds each
+to mitigated/ADR-accepted; a path that exists only in your prose does not
+count as tracked.
 
 ## Mode: red-team (Build roster / Verify confirmation)
 

@@ -192,12 +192,17 @@ definition is **data**, and the engine is a generic interpreter:
 - intent `fix`/`investigate`: `origin` record (`wf origin discover` — commit
   attribution, best-effort content, **required-present** at Verify for
   `investigate`).
+- intent `fix` (diff): a regression `requirement` referencing the origin
+  record (`origin: <id>`) whose AC states the defect no longer reproduces —
+  its red run at Build is the reproduction (waivable when the origin is
+  genuinely inconclusive).
 
 ### 4.2 Context
 - `context-map` record: files/modules examined + sufficiency note (min-content
   enforced: ≥N entries or explicit tiny-scope reason — fixes C10).
-- `assumption` records; `high-risk` flagged ones must appear in the approval
-  payload.
+- `assumption` records (`status: open`); `high-risk` flagged ones must appear
+  in the approval payload — and must be discharged
+  (`validated|invalidated`) before Verify exits.
 - `reclassify` checkpoint record: `confirmed` or family/intent change (→
   branch, §6).
 - diff/artifact: requirements baselined (`active`/`dropped`/`revised` status
@@ -216,8 +221,9 @@ definition is **data**, and the engine is a generic interpreter:
   system+software reviewer, 06 §2), `ux-design-reviewer` (when
   `ux: true` in project config and change is UI-bearing; else recorded `n/a`).
 - `threat-model` + `attack-tree` records when risk signals/trust boundaries
-  present (analyst verdict; high-feasibility paths mitigated or
-  ADR-accepted).
+  present (analyst verdict); each adversary path recorded as an
+  `attack-path` record and held to `mitigated|adr-accepted` — "mitigate or
+  ADR-accept" is a gate, not rhetoric (adr-accepted requires the ADR record).
 - `critic` verdict (pass/`risky`-with-dispositions/fail); dispositions are
   records, criticals unwaivable.
 - ADR artifact record when architectural (alternatives = the option-set IDs —
@@ -259,8 +265,13 @@ definition is **data**, and the engine is a generic interpreter:
   linked green `test-run` for that AC** (diff family; artifact/assessment use
   linked artifact-checks instead). `deferred` requires a user approval event.
 - Confirmation verdicts: `adversary` + `design-conformance` (diff/artifact;
-  consistency with Build-phase verdicts enforced), `ux-reviewer` (when
-  applicable), quality floor metrics if configured **and** measured.
+  consistency with Build-phase verdicts enforced — re-spawned only when
+  edits/loops post-date the Build verdicts; verdicts carry forward, and
+  post-verdict edits surface as a staleness trace finding at Ship),
+  `ux-reviewer` (when applicable), quality floor metrics if configured
+  **and** measured.
+- High-risk assumptions discharged: each flipped `validated|invalidated`
+  with evidence (invalidated ones surface at Ship for a disposition).
 - Security baseline records (diff): secret-scan, SCA — engine-captured
   runner results (`filtered`/`exit:null` = ungrounded, never pass).
 - intent `deploy` (closes legacy deferred issue 12): deployment-shaped
@@ -278,8 +289,12 @@ definition is **data**, and the engine is a generic interpreter:
 - **Engine-generated trace report** (`wf trace`): route-completeness (phases
   entered/exited vs family contract incl. waivers), unresolved records,
   open followups, unconsumed approvals, verdict coverage, forced/parked
-  events. Agent resolves each finding or dispositions it; `auditor` agent
-  verdict over the resolved report (HIGH findings block).
+  events, approval drift, edits touching path-like `out_of_scope` boundary
+  entries, gating-verdict staleness (edits post-dating the last review),
+  signal-vacating forces (Frame forced without a risk scan), and
+  invalidated high-risk assumptions. Agent resolves each finding or
+  dispositions it; `auditor` agent verdict over the resolved report (HIGH
+  findings block).
 - Delivery records: family-appropriate package (`pr`, `release`, `report`)
   with a `delivery-manifest` record for diff+deploy (artifact events
   present-not-stub).

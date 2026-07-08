@@ -389,7 +389,8 @@ func Verdict(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	text := in.LastAssistantMessage
 	pv := parseVerdict(text)
 	if !pv.ok && in.AgentTranscriptPath != "" {
-		pv = parseVerdict(tailFile(in.AgentTranscriptPath, 16*1024))
+		text = tailFile(in.AgentTranscriptPath, 16*1024)
+		pv = parseVerdict(text)
 	}
 	if !pv.ok {
 		var va verdictAttempts
@@ -426,6 +427,9 @@ func Verdict(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 	if pv.reason != "" {
 		data["reason"] = pv.reason
 	}
+	if fl := findingLines(text); len(fl) > 0 {
+		data["findings"] = fl
+	}
 	ev, err := c.Record("verdict", data, true, "hook")
 	if err != nil {
 		return hookio.Block("verdict recording failed (fail-closed): " + err.Error())
@@ -436,6 +440,33 @@ func Verdict(c *runctl.Ctl, in *hookio.Input) hookio.Result {
 		msg += " — auto-downgraded: clean/safe cannot carry findings"
 	}
 	return hookio.StopAllowMessage(msg)
+}
+
+// findingLines extracts the reviewer's tagged finding lines from the same
+// text the verdict was parsed from, persisting finding CONTENT on the
+// verdict record — transcripts die at compaction, so loop re-entries and
+// later runs used to see only the counts. Caps keep the ledger bounded.
+var findingLineRe = regexp.MustCompile(`(?m)^\s*(?:[-*]\s*)?((?:\[(?:critical|major|minor|HIGH|MED|LOW)\]|(?:ABUSE|PATH|BREAK|CONCERN|AMBIGUITY)\b).*)$`)
+
+func findingLines(text string) []any {
+	const maxLines, maxLen = 50, 300
+	var out []any
+	seen := map[string]bool{}
+	for _, m := range findingLineRe.FindAllStringSubmatch(text, -1) {
+		line := strings.TrimSpace(m[1])
+		if len(line) > maxLen {
+			line = line[:maxLen] + "…"
+		}
+		if seen[line] {
+			continue // JSONL transcripts repeat message content
+		}
+		seen[line] = true
+		out = append(out, line)
+		if len(out) == maxLines {
+			break
+		}
+	}
+	return out
 }
 
 // defaultScope infers the reviewer's mode from the phase when the verdict

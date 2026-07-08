@@ -4,6 +4,8 @@ package views
 
 import (
 	"fmt"
+	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/dariusz-klibisz/ClaudeWorkflow/engine/internal/contracts"
@@ -89,6 +91,80 @@ func Trace(c *runctl.Ctl) (string, error) {
 					severity: "medium",
 				})
 			}
+		}
+	}
+
+	// out-of-scope edits — the recorded scope boundary, mechanically
+	// checked: path-like out_of_scope entries (globs, /-paths, filenames)
+	// are matched against the auto-captured edit paths; prose entries stay
+	// the auditor's to judge. The boundary used to be write-only.
+	seenEdits := map[string]bool{}
+	for _, sb := range env.Records("scope-boundary") {
+		oos, _ := sb.Data["out_of_scope"].([]any)
+		for _, raw := range oos {
+			pat, ok := raw.(string)
+			if !ok || !pathLike(pat) {
+				continue
+			}
+			for _, ed := range env.Records("edit") {
+				p, _ := ed.Data["path"].(string)
+				if p == "" || seenEdits[ed.ID] || !pathMatches(pat, p) {
+					continue
+				}
+				seenEdits[ed.ID] = true
+				wants = append(wants, want{
+					key:      "scope:" + ed.ID,
+					text:     fmt.Sprintf("edit touched declared out-of-scope path %s (boundary entry %q)", p, pat),
+					severity: "high",
+				})
+			}
+		}
+	}
+	// gating-verdict staleness — edits recorded AFTER the latest gating
+	// verdict mean the reviews ran on a diff that has since changed.
+	// Informational, not a gate: the auditor judges whether the late change
+	// needed re-review (verdict-in deliberately carries verdicts forward).
+	if lastV := lastGatingVerdictOrder(env); lastV >= 0 {
+		late := 0
+		for _, ed := range env.Records("edit") {
+			if ed.Order > lastV {
+				late++
+			}
+		}
+		if late > 0 {
+			wants = append(wants, want{
+				key:      "stale-verdicts",
+				text:     fmt.Sprintf("%d edit(s) recorded after the latest gating verdict — the reviewed diff changed since review; re-run the affected reviewers or disposition why no re-review was needed", late),
+				severity: "medium",
+			})
+		}
+	}
+	// a forced Frame exit without a risk record silently vacates every
+	// when.signals-conditioned security item (threat model, attack tree,
+	// attack paths): false-by-absence must be visible, never silent.
+	if len(env.Records("risk")) == 0 {
+		for _, ev := range env.Events {
+			if ev.Kind == "phase" && ev.Str("action") == "force" && ev.Phase == "frame" {
+				wants = append(wants, want{
+					key:      "vacated-signals:" + ev.ID,
+					text:     "frame was forced without a risk scan — signal-conditioned security items (threat model, attack tree, attack paths) never applied; wf risk scan and re-check, or disposition why the change is signal-free",
+					severity: "high",
+				})
+				break
+			}
+		}
+	}
+	// invalidated high-risk assumptions — the work was built on something
+	// that turned out false; the close-out needs an explicit disposition
+	// naming why the result still stands.
+	for _, a := range env.Records("assumption") {
+		hr, _ := a.Data["high_risk"].(bool)
+		if s, _ := a.Data["status"].(string); hr && s == "invalidated" {
+			wants = append(wants, want{
+				key:      "assumption-invalidated:" + a.ID,
+				text:     fmt.Sprintf("high-risk assumption invalidated: %v — disposition why the delivered result still stands", a.Data["text"]),
+				severity: "medium",
+			})
 		}
 	}
 
@@ -208,4 +284,54 @@ func has(xs []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// pathLike decides whether an out_of_scope entry is mechanically checkable:
+// a glob, a /-separated path, or a filename with an extension. Prose entries
+// ("authentication") are skipped — they are the auditor's to judge.
+func pathLike(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.ContainsAny(s, " \t") {
+		return false // prose
+	}
+	return strings.ContainsAny(s, "/*?[") || strings.Contains(s, ".")
+}
+
+// pathMatches matches a boundary entry against a normalized project-relative
+// edit path: trailing-/ entries and bare directories match by prefix, glob
+// entries via path.Match against the full path and the basename.
+func pathMatches(pat, p string) bool {
+	pat = strings.TrimPrefix(strings.TrimSpace(filepath.ToSlash(pat)), "./")
+	p = strings.TrimPrefix(filepath.ToSlash(p), "./")
+	if pat == "" {
+		return false
+	}
+	if strings.HasSuffix(pat, "/") {
+		return strings.HasPrefix(p, pat)
+	}
+	if strings.ContainsAny(pat, "*?[") {
+		if ok, _ := path.Match(pat, p); ok {
+			return true
+		}
+		ok, _ := path.Match(pat, path.Base(p))
+		return ok
+	}
+	return p == pat || strings.HasPrefix(p, pat+"/")
+}
+
+// lastGatingVerdictOrder returns the stream position of the newest verdict
+// by a gating roster agent, or -1 when none exists.
+func lastGatingVerdictOrder(env *contracts.Env) int {
+	last := -1
+	for _, v := range env.Records("verdict") {
+		agent, _ := v.Data["agent"].(string)
+		ag, ok := env.Spec.AgentByName(agent)
+		if !ok || !ag.Gating {
+			continue
+		}
+		if v.Order > last {
+			last = v.Order
+		}
+	}
+	return last
 }

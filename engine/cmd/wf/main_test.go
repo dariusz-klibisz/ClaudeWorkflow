@@ -98,7 +98,7 @@ func TestRecordFlagSyntaxTolerance(t *testing.T) {
 		t.Fatalf("run start: %d %s", code, out)
 	}
 	// mixed syntaxes in one invocation
-	code, out := runCLI(t, dir, "", "record", "assumption", "--text", "flags work", "risk=low")
+	code, out := runCLI(t, dir, "", "record", "assumption", "--text", "flags work", "status=open", "risk=low")
 	if code != 0 || !strings.Contains(out, "recorded assumption") {
 		t.Fatalf("--key value must be accepted: %d %s", code, out)
 	}

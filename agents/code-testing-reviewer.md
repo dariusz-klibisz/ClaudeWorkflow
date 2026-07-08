@@ -22,8 +22,11 @@ verification chain the whole workflow rests on.
 cite IDs):
 - each AC has at least one test that asserts the AC's observable behavior
   (not implementation internals)
-- failure paths tested, not just happy paths (the negative-space
-  completeness records name the cases — check them)
+- failure paths tested, not just happy paths — the negative-space
+  completeness records name the cases with traceable dispositions: for
+  every `covered:<AC id>` case, verify a test actually exercises that path;
+  a covered-claim without a test = **major** (the case was promised to the
+  ACs and silently dropped)
 - no assertion-free tests, no sleeps-as-synchronization, no order-dependent
   tests, mocks only at boundaries
 - test names state the behavior; a failing test's message identifies the

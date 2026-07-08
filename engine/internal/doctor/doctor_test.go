@@ -40,7 +40,7 @@ func TestHookLivenessDetection(t *testing.T) {
 	r.Phase = "build"
 	_ = c.Store.SaveRun(r)
 	for i := 0; i < 16; i++ {
-		if _, err := c.Record("assumption", map[string]any{"text": "x"}, false, "agent"); err != nil {
+		if _, err := c.Record("assumption", map[string]any{"text": "x", "status": "open"}, false, "agent"); err != nil {
 			t.Fatal(err)
 		}
 	}

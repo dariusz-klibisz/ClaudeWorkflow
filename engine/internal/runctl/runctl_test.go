@@ -72,16 +72,22 @@ func satisfyFrame(t *testing.T, c *Ctl) {
 	rec("risk", map[string]any{"signals": []any{"data"}, "lenses": []any{"security", "adversarial"}})
 	rec("ambiguity", map[string]any{"lens": "security", "text": "input validated?", "disposition": "resolved"})
 	rec("ambiguity", map[string]any{"lens": "adversarial", "none": true, "disposition": "none"})
+	orig, err := c.Record("origin", map[string]any{"attribution": "introduced in abc123"}, false, "agent")
+	if err != nil {
+		t.Fatalf("record origin: %v", err)
+	}
+	// fix intent: the regression requirement traces to the origin
+	// (frame.fix-regression)
 	rec("requirement", map[string]any{"rid": "SWR-1", "level": "software", "text": "handle empty files", "status": "active",
+		"origin": orig.ID,
 		"acs": []any{map[string]any{"id": "AC-1", "text": "empty file yields error msg", "verifiable": true}}})
 	rec("completeness", map[string]any{"items": []any{
-		map[string]any{"case": "empty", "disposition": "covered"},
-		map[string]any{"case": "error", "disposition": "covered"},
-		map[string]any{"case": "max", "disposition": "n/a"},
+		map[string]any{"case": "empty", "disposition": "covered:AC-1"},
+		map[string]any{"case": "error", "disposition": "covered:AC-1"},
+		map[string]any{"case": "max", "disposition": "accepted-risk: bounded input"},
 	}})
 	rec("verdict", map[string]any{"agent": "adversary", "scope": "abuse-case", "status": "clean", "criticals": 0, "majors": 0})
 	rec("verdict", map[string]any{"agent": "lens-reviewer", "scope": "security", "status": "clean", "criticals": 0, "majors": 0})
-	rec("origin", map[string]any{"attribution": "introduced in abc123"})
 	if _, err := c.Approve("frame", "diff/fix: fix empty-file crash"); err != nil {
 		t.Fatal(err)
 	}
@@ -315,8 +321,67 @@ func TestJudgmentRecordWriteValidation(t *testing.T) {
 	if _, err := c.Record("completeness", map[string]any{"items": []any{map[string]any{"case": "empty"}}}, false, "agent"); err == nil {
 		t.Fatal("dispositionless completeness item must be refused")
 	}
-	if _, err := c.Record("completeness", map[string]any{"items": []any{map[string]any{"case": "empty", "disposition": "covered"}}}, false, "agent"); err != nil {
+	if _, err := c.Record("completeness", map[string]any{"items": []any{map[string]any{"case": "empty", "disposition": "covered:AC-1"}}}, false, "agent"); err != nil {
 		t.Fatalf("valid completeness refused: %v", err)
+	}
+	// disposition vocabulary: free prose let dispositioned cases drop
+	// silently between Frame and Build
+	if _, err := c.Record("completeness", map[string]any{"items": []any{map[string]any{"case": "empty", "disposition": "will handle later"}}}, false, "agent"); err == nil {
+		t.Fatal("free-prose completeness disposition must be refused")
+	}
+	if _, err := c.Record("completeness", map[string]any{"items": []any{map[string]any{"case": "empty", "disposition": "covered:"}}}, false, "agent"); err == nil {
+		t.Fatal("covered: without an AC id must be refused")
+	}
+	for _, ok := range []string{"out-of-scope: separate service", "accepted-risk: bounded input"} {
+		if _, err := c.Record("completeness", map[string]any{"items": []any{map[string]any{"case": "x", "disposition": ok}}}, false, "agent"); err != nil {
+			t.Fatalf("disposition %q refused: %v", ok, err)
+		}
+	}
+}
+
+// attack-path records: one per adversary path, enum-validated, and
+// adr-accepted must be backed by an ADR artifact record.
+func TestAttackPathWriteValidation(t *testing.T) {
+	c := newCtl(t)
+	_, _ = c.RunStart("diff", "new")
+	if _, err := c.Record("attack-path", map[string]any{"path": "  ", "feasibility": "high", "disposition": "open"}, false, "agent"); err == nil {
+		t.Fatal("blank path must be refused")
+	}
+	if _, err := c.Record("attack-path", map[string]any{"path": "p", "feasibility": "certain", "disposition": "open"}, false, "agent"); err == nil {
+		t.Fatal("unknown feasibility must be refused")
+	}
+	if _, err := c.Record("attack-path", map[string]any{"path": "p", "feasibility": "high", "disposition": "ignored"}, false, "agent"); err == nil {
+		t.Fatal("unknown disposition must be refused")
+	}
+	// adr-accepted without any ADR record is a hollow claim
+	if _, err := c.Record("attack-path", map[string]any{"path": "p", "feasibility": "high", "disposition": "adr-accepted"}, false, "agent"); err == nil {
+		t.Fatal("adr-accepted without an ADR artifact must be refused")
+	}
+	ev, err := c.Record("attack-path", map[string]any{"path": "admin takeover ← forged cookie", "feasibility": "high", "disposition": "open"}, false, "agent")
+	if err != nil {
+		t.Fatalf("valid attack-path refused: %v", err)
+	}
+	if _, err := c.Record("artifact", map[string]any{"path": "docs/architecture/adr/001.md", "template": "adr", "status": "stub"}, false, "agent"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Record("attack-path", map[string]any{"updates": ev.ID, "disposition": "adr-accepted"}, false, "agent"); err != nil {
+		t.Fatalf("adr-accepted with an ADR record refused: %v", err)
+	}
+}
+
+// assumption status lifecycle enum.
+func TestAssumptionStatusValidation(t *testing.T) {
+	c := newCtl(t)
+	_, _ = c.RunStart("diff", "new")
+	if _, err := c.Record("assumption", map[string]any{"text": "x", "status": "maybe"}, false, "agent"); err == nil {
+		t.Fatal("unknown assumption status must be refused")
+	}
+	ev, err := c.Record("assumption", map[string]any{"text": "prod db reachable", "status": "open", "high_risk": true}, false, "agent")
+	if err != nil {
+		t.Fatalf("valid assumption refused: %v", err)
+	}
+	if _, err := c.Record("assumption", map[string]any{"updates": ev.ID, "status": "validated"}, false, "agent"); err != nil {
+		t.Fatalf("discharge update refused: %v", err)
 	}
 }
 
@@ -582,8 +647,8 @@ func TestApproveBindsRefs(t *testing.T) {
 	}
 	rec("requirement", map[string]any{"rid": "SWR-1", "level": "software", "text": "t", "status": "active",
 		"acs": []any{map[string]any{"id": "AC-1", "text": "a", "verifiable": true}}})
-	rec("assumption", map[string]any{"text": "prod db reachable", "high_risk": true})
-	rec("assumption", map[string]any{"text": "low-risk detail", "high_risk": false})
+	rec("assumption", map[string]any{"text": "prod db reachable", "status": "open", "high_risk": true})
+	rec("assumption", map[string]any{"text": "low-risk detail", "status": "open", "high_risk": false})
 	ev, err := c.Approve("scope", "presented")
 	if err != nil {
 		t.Fatal(err)

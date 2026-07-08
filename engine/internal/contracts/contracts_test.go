@@ -371,7 +371,7 @@ func TestMinContentDepthItems(t *testing.T) {
 	}
 	// completeness depth mirrors it
 	b2 := &envBuilder{}
-	b2.add("completeness", false, map[string]any{"items": []any{map[string]any{"case": "empty", "disposition": "ok"}}})
+	b2.add("completeness", false, map[string]any{"items": []any{map[string]any{"case": "empty", "disposition": "covered:AC-1"}}})
 	env = newEnv(t, b2, "diff", "new", nil)
 	fs, _ = EvaluatePhase(env, "frame")
 	if _, ok := findingIDs(fs)["frame.completeness-depth"]; !ok {

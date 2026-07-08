@@ -73,10 +73,11 @@ rule in 04 §4.
 | `ambiguity` | lens, text, disposition | Frame |
 | `requirement` | id, level, text, acs[] (each `verifiable`), status transitions | Frame/Context |
 | `completeness` | items[] + dispositions | Frame |
-| `assumption` | text, high_risk | Context |
+| `assumption` | text, status (open→validated\|invalidated at Verify), high_risk | Context |
 | `context-map` | entries[], sufficiency | Context |
 | `option-set` | stage, candidates[], selected, rejected[]+reasons | Design |
-| `threat` / `attack-path` | STRIDE/tree entries, mitigation status | Design |
+| `threat` | STRIDE entries | Design |
+| `attack-path` | one per adversary tree path: path, feasibility, disposition (open→mitigated\|adr-accepted, gated) | Design |
 | `task` | id, dod[], ac_links[], status | Plan/Build (mirrored to TaskCreate) |
 | `verification-strategy` | ac, method, command | Plan |
 | `deps` | verdict present/missing/n-a, detail | `wf deps check` |

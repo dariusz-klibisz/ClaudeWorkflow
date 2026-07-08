@@ -3,10 +3,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "high_risk": {},
+    "status": {},
     "text": {}
   },
   "required": [
-    "text"
+    "text",
+    "status"
   ],
   "title": "wf record: assumption",
   "type": "object"
